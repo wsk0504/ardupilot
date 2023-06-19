@@ -127,6 +127,7 @@ protected:
     float _oscillate_angle = 0.0f;              // cyclic oscillation angle, used by servo_test function
     float _servo_test_cycle_time = 0.0f;        // cycle time tracker, used by servo_test function
     float _collective_test = 0.0f;              // over-ride for collective output, used by servo_test function
+    float collective_out = 0.0f;                // over-ride for collective output, used by servo_test function
     float _roll_test = 0.0f;                    // over-ride for roll output, used by servo_test function
     float _pitch_test = 0.0f;                   // over-ride for pitch output, used by servo_test function
     float _yaw_test = 0.0f;                     // over-ride for yaw output, used by servo_test function
@@ -135,6 +136,7 @@ protected:
     float _servo3_out = 0.0f;                   // output value sent to motor
     float _servo4_out = 0.0f;                   // output value sent to motor
     float _servo5_out = 0.0f;                   // output value sent to motor
+    uint16_t rc4_in;                            // for rc4_in pwm
 
     // parameters
     AP_Int16        _tail_type;                 // Tail type used: Servo, Servo with external gyro, direct drive variable pitch or direct drive fixed pitch
