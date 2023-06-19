@@ -151,7 +151,14 @@ void AP_MotorsHeli_Single::set_update_rate( uint16_t speed_hz )
         1U << AP_MOTORS_MOT_1 |
         1U << AP_MOTORS_MOT_2 |
         1U << AP_MOTORS_MOT_3 |
-        1U << AP_MOTORS_MOT_4;
+        //JH 05_26_23
+        //1U << AP_MOTORS_MOT_4;
+        1U << AP_MOTORS_MOT_4 |
+        1U << AP_MOTORS_MOT_6 |
+        1U << AP_MOTORS_MOT_7 |
+        1U << AP_MOTORS_MOT_8 |
+        1U << AP_MOTORS_MOT_9;
+        //
     if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
         mask |= 1U << (AP_MOTORS_MOT_5);
     }
@@ -214,6 +221,11 @@ bool AP_MotorsHeli_Single::init_outputs()
 
     // yaw servo is an angle from -4500 to 4500
     SRV_Channels::set_angle(SRV_Channel::k_motor4, YAW_SERVO_MAX_ANGLE);
+    //JH 05_22_23
+    SRV_Channels::set_angle(SRV_Channel::k_motor6, YAW_SERVO_MAX_ANGLE);
+    SRV_Channels::set_angle(SRV_Channel::k_motor7, YAW_SERVO_MAX_ANGLE);
+    SRV_Channels::set_angle(SRV_Channel::k_motor9, YAW_SERVO_MAX_ANGLE);
+    SRV_Channels::set_angle(SRV_Channel::k_motor10, YAW_SERVO_MAX_ANGLE); 
 
     set_initialised_ok(_frame_class == MOTOR_FRAME_HELI);
 
@@ -249,6 +261,12 @@ void AP_MotorsHeli_Single::_output_test_seq(uint8_t motor_seq, int16_t pwm)
                 }
             }
             rc_write(AP_MOTORS_MOT_4, pwm);
+            //JH 05_12_23 
+            rc_write(AP_MOTORS_MOT_6, pwm);
+            rc_write(AP_MOTORS_MOT_7, pwm);
+            rc_write(AP_MOTORS_MOT_9, pwm);
+            rc_write(AP_MOTORS_MOT_10, pwm);
+            //
             break;
         case 5:
             // main rotor
@@ -359,8 +377,10 @@ uint32_t AP_MotorsHeli_Single::get_motor_mask()
 {
     // heli uses channels 1,2,3,4 and 8
     // setup fast channels
-    uint32_t mask = 1U << 0 | 1U << 1 | 1U << 2 | 1U << 3 | 1U << AP_MOTORS_HELI_RSC;
-
+    //JH 05_26_23
+    //uint32_t mask = 1U << 0 | 1U << 1 | 1U << 2 | 1U << 3 | 1U << AP_MOTORS_HELI_RSC;
+    uint32_t mask = 1U << 0 | 1U << 1 | 1U << 2 | 1U << 3 | 1U << AP_MOTORS_HELI_RSC | 1U << 5 | 1U << 6 | 1U << 8 | 1U << 9;
+    //
     if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
         mask |= 1U << 4;
     }
@@ -433,7 +453,7 @@ void AP_MotorsHeli_Single::move_actuators(float roll_out, float pitch_out, float
     }
 
     // constrain collective input
-    float collective_out = coll_in;
+    collective_out = coll_in;
     if (collective_out <= 0.0f) {
         collective_out = 0.0f;
         limit.throttle_lower = true;
@@ -546,6 +566,12 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::SHUT_DOWN:
             // sends minimum values out to the motors
             update_motor_control(ROTOR_CONTROL_STOP);
+            //JH 05_22_23
+            rc_write_angle(AP_MOTORS_MOT_6, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+            //
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
@@ -553,6 +579,12 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::GROUND_IDLE:
             // sends idle output to motors when armed. rotor could be static or turning (autorotation)
             update_motor_control(ROTOR_CONTROL_IDLE);
+            //JH 05_22_23
+            rc_write_angle(AP_MOTORS_MOT_6, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+            //
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
@@ -561,6 +593,15 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::THROTTLE_UNLIMITED:
             // set motor output based on thrust requests
             update_motor_control(ROTOR_CONTROL_ACTIVE);
+            //JH 05_22_23
+            if (collective_out > 0.02){
+                _servo4_out = constrain_float(_servo4_out, -0.8f, 1.0f);
+                rc_write_angle(AP_MOTORS_MOT_6,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_7,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_9,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_10, -_servo4_out * YAW_SERVO_MAX_ANGLE);
+            }
+            //
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 // constrain output so that motor never fully stops
                  _servo4_out = constrain_float(_servo4_out, -0.9f, 1.0f);
@@ -571,6 +612,12 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::SPOOLING_DOWN:
             // sends idle output to motors and wait for rotor to stop
             update_motor_control(ROTOR_CONTROL_IDLE);
+            //JH 05_22_23
+            rc_write_angle(AP_MOTORS_MOT_6, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+            rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+            //
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
