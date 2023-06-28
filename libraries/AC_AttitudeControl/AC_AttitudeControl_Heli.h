@@ -104,7 +104,6 @@ public:
     void set_inverted_flight(bool inverted) override {
         _inverted_flight = inverted;
     }
-    
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -128,6 +127,8 @@ private:
     // outputs are sent directly to motor class
     void rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
     float rate_target_to_motor_yaw(float rate_yaw_actual_rads, float rate_yaw_rads);
+   // JH 6/21/23 Exp_PDC_time_delay
+    void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
 
     //
     // throttle methods
@@ -158,5 +159,42 @@ private:
     AC_HELI_PID     _pid_rate_roll;
     AC_HELI_PID     _pid_rate_pitch;
     AC_HELI_PID     _pid_rate_yaw;
-    
+    // JH 6/21/23 Exp_PDC_time_delay system parameter
+    AP_Int16 _K_p_1;
+    AP_Int16 _K_p_2;
+    AP_Int16 _K_1;
+    AP_Int16 _K_2;
+    AP_Int16 _P_D;
+    static unsigned long long k_t;
+    static float Input[50];
+    static int buff;
+    static float roll_ref;
+    static float roll_cur;
+    float Ac[2][2] = {{0.0f, 1.0f},{0.0f, 0.0f}};
+    float A[2][2] = {{1.0f, 0.0f},{0.0f, 1.0f}};
+    float B[2][1] = {{0.0f}, {1.0f}};
+    float hc = 0.5f; //0.5 delay
+    int r = 2;
+    float omega0 = 5.0f;
+    float c[3][1] = {0};
+    float Ap1[3][3] = {0};
+    float Ap[3][3] = {{1.0f,0.0f,0.0f},{0.0f,1.0f,0.0f},{0.0f,0.0f,1.0f}};
+    float Bp[3][1] = {0};
+    float Cp[1][3] = {1};
+    float u_k_delayed = 0.0f; // Input 저장소 확인
+    float x_p3_k[2][1] = {0};
+    float d_est = 0.0f;
+    float z_k = 0.0f;
+    float d_k_h = 0.0f;
+    float Xi_k[3][1]= {0};
+    float e_chi[2][1]= {0};
+    float Xi_k_1[3][1]= {0};
+    float delta_Xi_k[3][1]= {0};
+    float y[2][1] = {0};
+    float y1[2][1] = {0};   
+    float y2[2][1]= {0};
+    uint8_t size_fn = 50;
+
+
+
 };

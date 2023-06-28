@@ -1,6 +1,10 @@
 #include "AC_AttitudeControl_Heli.h"
 #include <AP_HAL/AP_HAL.h>
-
+unsigned long long AC_AttitudeControl_Heli::k_t = 0; // sampling initialized
+float AC_AttitudeControl_Heli::Input[50] = {0}; // Input initialized
+int AC_AttitudeControl_Heli::buff = 50;
+float AC_AttitudeControl_Heli::roll_ref = 0;
+float AC_AttitudeControl_Heli::roll_cur = 0;
 // table of user settable parameters
 const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // parameters from parent vehicle
@@ -244,6 +248,13 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("PIRO_COMP",    5, AC_AttitudeControl_Heli, _piro_comp_enabled, 0),
     
+    AP_GROUPINFO("K_P_1",    6, AC_AttitudeControl_Heli, _K_p_1, -5),
+    AP_GROUPINFO("K_P_2",    7, AC_AttitudeControl_Heli, _K_p_2,-9),
+    AP_GROUPINFO("DOB_K_1",    8, AC_AttitudeControl_Heli, _K_1, 0),
+    AP_GROUPINFO("DOB_K_2",    9, AC_AttitudeControl_Heli, _K_2, 10),
+    AP_GROUPINFO("PID_OR_DELAY",    10, AC_AttitudeControl_Heli, _P_D, 0),
+
+    
     AP_GROUPEND
 };
 
@@ -352,7 +363,12 @@ void AC_AttitudeControl_Heli::rate_controller_run()
         _motors.set_roll(_passthrough_roll / 4500.0f);
         _motors.set_pitch(_passthrough_pitch / 4500.0f);
     } else {
+        if (_P_D == 0){
         rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y);
+        }
+        else{
+            exp_pbc_time_delay_system_roll(gyro_latest,_ang_vel_body.x, _ang_vel_body.y);    
+        }
     }
     if (_flags_heli.tail_passthrough) {
         _motors.set_yaw(_passthrough_yaw / 4500.0f);
@@ -365,6 +381,182 @@ void AC_AttitudeControl_Heli::rate_controller_run()
 
 }
 
+// JH 6/21/23
+double nchoosek(int n, int k);
+// nCr 
+double nchoosek(int n, int k) {
+    if (k == 0) return 1;
+    if (k > n / 2) return nchoosek(n, n-k); // Take advantage of symmetry
+    double res = 1;
+    for (int i = 1; i <= k; i++) {
+        res *= (n - k + i);
+        res /= i;
+    }
+    return res;
+}
+
+void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads)
+{
+    // reference trajectory
+    roll_ref = rate_roll_target_rads;
+    float x_d1 = (roll_ref - rate_roll_target_rads)*_dt; 
+    float x_d2 = rate_roll_target_rads;
+    float x_d[2][1] = {{x_d1},{x_d2}};
+    // State
+    float x_k[2][1]  = {_ahrs.roll,rate_rads.x};
+
+    // 시스템 파라미터 Ac,A,B,hc,h 선언
+    for (uint8_t i = 0; i < 2; i++){
+        B[i][0] *= _dt;
+        // error 정의
+        e_chi[i][0] = x_p3_k[i][0] - x_d[i][0];
+        for (int j = 0; j < 2; j++){
+            A[i][j] += Ac[i][j] * _dt;
+        }    
+    }
+    uint16_t h = hc / _dt;
+
+    // predictor 파라미터 r,omega0,c,Ap1,Ap,Bp,Cp
+    for (uint8_t i = 0; i < r+1; i++){
+        c[i][0] = nchoosek(r+1,i+1) * pow(omega0,i);
+        Cp[0][i] = _dt * nchoosek(h,i+1);
+    }
+    for (uint8_t i = 0; i < r; i++){
+        Ap1[i][0] = -c[i][0];
+        Ap1[i][i+1] = 1;
+    }
+    Ap1[r][0] = -c[r][0];
+    for (uint8_t i = 0; i < 3; i++){
+        Bp[i][0] = _dt*c[i][0];
+        for (uint8_t j = 0; j < 3; j++){
+            Ap[i][j] += Ap1[i][j] * _dt;
+        }
+    }        
+    Cp[0][0] = Cp[0][0] / _dt;
+
+    // Control Input
+    float u_k = _K_p_1*e_chi[0][0] + _K_p_2*e_chi[1][0] - d_k_h;
+    if (k_t != 0){
+        if (hc >= _dt){ 
+            if (k_t > h){
+                u_k_delayed = Input[k_t-h];
+            }
+        else
+            u_k_delayed = Input[k_t-1];
+        }
+    }
+    
+    //Disturbance Observer
+    float z_k_1 = z_k + (_K_1*(A[0][0]-1)+_K_2*(A[1][0])) * x_k[0][0] \
+    + (_K_1*(A[0][1])+_K_2*(A[1][1]-1)) * x_k[1][0] \
+    + (_K_1*(B[0][0])+_K_2*(B[1][0])) * (u_k_delayed + d_est);
+    d_est = _K_1*x_k[0][0]+_K_2*x_k[1][0] - z_k;
+
+    // predictor for d(t+h)
+    Xi_k_1[0][0] = Ap[0][0]*Xi_k[0][0]+Ap[0][1]*Xi_k[1][0]+Ap[0][2]*Xi_k[2][0]+Bp[0][0]*d_est;
+    Xi_k_1[1][0] = Ap[1][0]*Xi_k[0][0]+Ap[1][1]*Xi_k[1][0]+Ap[1][2]*Xi_k[2][0]+Bp[1][0]*d_est;
+    Xi_k_1[2][0] = Ap[2][0]*Xi_k[0][0]+Ap[2][1]*Xi_k[1][0]+Ap[2][2]*Xi_k[2][0]+Bp[2][0]*d_est;
+
+    for(uint8_t i = 0; i < 3; i++){
+        delta_Xi_k[i][0] = Xi_k_1[i][0] - Xi_k[i][0];
+        d_k_h += Cp[0][i]*delta_Xi_k[i][0];
+    }
+
+
+    // State Prediction
+    if (h > 1){
+        for (uint8_t i = 0; i < h; i++){
+            if (i <= r){
+                float Cp_[1][i+1]={1};
+                for (uint8_t j = 1; j < i; j++){
+                    Cp_[0][j-1] = _dt * nchoosek(i,j-1);
+                }
+                Cp_[0][0] = Cp_[0][0]/_dt;
+                for (uint8_t k = 0; k < i; k++){
+                    y2[k][0] = Cp_[0][k]*delta_Xi_k[k][0] + d_est;
+                }            
+            }else{
+                float Cp_1[1][3] = {1};
+                    for (uint8_t j = 1; j < r; j++){
+                    Cp_1[0][j-1] = _dt * nchoosek(i,j-1);
+                    }
+                Cp_1[0][0] = Cp_1[0][0]/_dt;
+                for (uint8_t k = 0; k < i; k++){
+                    y2[k][0] = Cp_1[0][k]*delta_Xi_k[k][0] + d_est;
+                }
+            }
+
+            if (k_t < h){
+                y[0][0] = y[0][0] + (pow(A[0][0],(1-i))*B[0][0]+pow(A[0][1],(1-i))*B[1][0])*(Input[size_fn-1+i] + y2[0][0]);
+                y[1][0] = y[1][0] + (pow(A[1][0],(1-i))*B[0][0]+pow(A[1][1],(1-i))*B[1][0])*(Input[size_fn-1+i] +  y2[1][0]);
+            }else{
+                y1[0][0] = y1[0][0] + (pow(A[0][0],(h-i))*B[0][0]+pow(A[0][1],(h-i))*B[1][0])*(Input[size_fn-h+i] + y2[0][0]);
+                y1[1][0] = y1[1][0] + (pow(A[1][0],(h-i))*B[0][0]+pow(A[1][1],(h-i))*B[1][0])*(Input[size_fn-h+i] +  y2[1][0]);
+            }
+        }
+    }
+
+    if (k_t < h){
+        x_p3_k[0][0] = pow(A[0][0],h)*x_k[0][0] + pow(A[0][1],h)*x_k[1][0]; 
+        x_p3_k[1][0] = pow(A[1][0],h)*x_k[0][0] + pow(A[1][1],h)*x_k[1][0];
+        x_p3_k[0][0] += y[0][0];
+        x_p3_k[1][0] += y[1][0];
+    }else{
+        x_p3_k[0][0] = pow(A[0][0],h)*x_k[0][0] + pow(A[0][1],h)*x_k[1][0]; 
+        x_p3_k[1][0] = pow(A[1][0],h)*x_k[0][0] + pow(A[1][1],h)*x_k[1][0];
+        x_p3_k[0][0] += y1[0][0];
+        x_p3_k[1][0] += y1[1][0];
+
+    }
+
+    
+    // 실제 모터 제어 필요한 값 제한
+    float roll_out = u_k_delayed;
+    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_roll = true;
+    } else {
+        _flags_heli.limit_roll = false;
+    }
+    // output to motor
+    _motors.set_roll(roll_out);
+
+    // output for pitch (ppid)
+    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, _dt, _motors.limit.pitch) + _actuator_sysid.y;
+    // use pid library to calculate ff
+    float pitch_ff = _pid_rate_pitch.get_ff();
+    // add feed forward and final output
+    float pitch_out = pitch_pid + pitch_ff;
+    // constrain output and update limit flags
+    if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_pitch = true;
+    } else {
+        _flags_heli.limit_pitch = false;
+    }
+    // output to motors
+    _motors.set_pitch(pitch_out);
+
+    // Next Step
+    if (k_t < buff) {
+        // Store the new value and increment currentIndex
+        Input[k_t] = u_k;
+    } else {
+        // Shift all values one position to the left
+        for (int i = 1; i < buff; ++i) {
+          Input[i-1] = Input[i];
+        }
+        // Store the new value at the end
+        Input[buff-1] = u_k;
+    }
+    z_k = z_k_1;
+    d_k_h += d_est;
+    for(int i = 0; i < 2; i++) {
+        Xi_k[i][0] = Xi_k_1[i][0];
+    }
+    k_t += 1;
+
+}
 // Update Alt_Hold angle maximum
 void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
 {
@@ -383,11 +575,19 @@ void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
 // rate_bf_to_motor_roll_pitch - ask the rate controller to calculate the motor outputs to achieve the target rate in radians/second
 void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads)
 {
-
     if (_flags_heli.leaky_i) {
         _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
     float roll_pid = _pid_rate_roll.update_all(rate_roll_target_rads, rate_rads.x, _dt, _motors.limit.roll) + _actuator_sysid.x;
+    float roll_ff = _pid_rate_roll.get_ff();
+    float roll_out = roll_pid + roll_ff;
+    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_roll = true;
+    } else {
+        _flags_heli.limit_roll = false;
+    }
+        _motors.set_roll(roll_out);    
 
     if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
@@ -396,20 +596,15 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, _dt, _motors.limit.pitch) + _actuator_sysid.y;
 
     // use pid library to calculate ff
-    float roll_ff = _pid_rate_roll.get_ff();
+
     float pitch_ff = _pid_rate_pitch.get_ff();
 
     // add feed forward and final output
-    float roll_out = roll_pid + roll_ff;
+
     float pitch_out = pitch_pid + pitch_ff;
 
     // constrain output and update limit flags
-    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
-        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
-        _flags_heli.limit_roll = true;
-    } else {
-        _flags_heli.limit_roll = false;
-    }
+
     if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_pitch = true;
@@ -418,7 +613,7 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     }
 
     // output to motors
-    _motors.set_roll(roll_out);
+
     _motors.set_pitch(pitch_out);
 
     // Piro-Comp, or Pirouette Compensation is a pre-compensation calculation, which basically rotates the Roll and Pitch Rate I-terms as the
