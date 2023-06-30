@@ -29,6 +29,8 @@
 #define AC_ATTITUDE_HELI_HOVER_ROLL_TRIM_DEFAULT    300
 #define AC_ATTITUDE_HELI_ACRO_OVERSHOOT_ANGLE_RAD   ToRad(30.0f)
 
+#define BUFFER 200
+
 class AC_AttitudeControl_Heli : public AC_AttitudeControl {
 public:
     AC_AttitudeControl_Heli( AP_AHRS_View &ahrs,
@@ -165,20 +167,16 @@ private:
     AP_Int16 _K_1;
     AP_Int16 _K_2;
     AP_Int16 _P_D;
-    static unsigned long long k_t;
-    static float Input[50];
-    static int buff;
+    static unsigned int k_t;
+    static float Input[BUFFER];
     static float roll_ref;
     static float roll_cur;
     float Ac[2][2] = {{0.0f, 1.0f},{0.0f, 0.0f}};
-    float A[2][2] = {{1.0f, 0.0f},{0.0f, 1.0f}};
-    float B[2][1] = {{0.0f}, {1.0f}};
     float hc = 0.5f; //0.5 delay
-    int r = 2;
+    uint8_t r = 2;
     float omega0 = 5.0f;
     float c[3][1] = {0};
     float Ap1[3][3] = {0};
-    float Ap[3][3] = {{1.0f,0.0f,0.0f},{0.0f,1.0f,0.0f},{0.0f,0.0f,1.0f}};
     float Bp[3][1] = {0};
     float Cp[1][3] = {1};
     float u_k_delayed = 0.0f; // Input 저장소 확인
@@ -193,8 +191,5 @@ private:
     float y[2][1] = {0};
     float y1[2][1] = {0};   
     float y2[2][1]= {0};
-    uint8_t size_fn = 50;
-
-
 
 };

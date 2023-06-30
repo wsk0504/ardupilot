@@ -1,8 +1,7 @@
 #include "AC_AttitudeControl_Heli.h"
 #include <AP_HAL/AP_HAL.h>
-unsigned long long AC_AttitudeControl_Heli::k_t = 0; // sampling initialized
-float AC_AttitudeControl_Heli::Input[50] = {0}; // Input initialized
-int AC_AttitudeControl_Heli::buff = 50;
+unsigned int AC_AttitudeControl_Heli::k_t = 0; // sampling initialized
+float AC_AttitudeControl_Heli::Input[BUFFER] = {0}; // Input initialized
 float AC_AttitudeControl_Heli::roll_ref = 0;
 float AC_AttitudeControl_Heli::roll_cur = 0;
 // table of user settable parameters
@@ -398,7 +397,6 @@ double nchoosek(int n, int k) {
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads)
 {
     // reference trajectory
-    roll_ref = rate_roll_target_rads;
     float x_d1 = (roll_ref - rate_roll_target_rads)*_dt; 
     float x_d2 = rate_roll_target_rads;
     float x_d[2][1] = {{x_d1},{x_d2}};
@@ -406,6 +404,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     float x_k[2][1]  = {_ahrs.roll,rate_rads.x};
 
     // 시스템 파라미터 Ac,A,B,hc,h 선언
+    float A[2][2] = {{1.0f, 0.0f},{0.0f, 1.0f}};
+    float B[2][1] = {{0.0f}, {1.0f}};
     for (uint8_t i = 0; i < 2; i++){
         B[i][0] *= _dt;
         // error 정의
@@ -426,6 +426,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         Ap1[i][i+1] = 1;
     }
     Ap1[r][0] = -c[r][0];
+    float Ap[3][3] = {{1.0f,0.0f,0.0f},{0.0f,1.0f,0.0f},{0.0f,0.0f,1.0f}};
     for (uint8_t i = 0; i < 3; i++){
         Bp[i][0] = _dt*c[i][0];
         for (uint8_t j = 0; j < 3; j++){
@@ -436,15 +437,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
 
     // Control Input
     float u_k = _K_p_1*e_chi[0][0] + _K_p_2*e_chi[1][0] - d_k_h;
-    if (k_t != 0){
-        if (hc >= _dt){ 
-            if (k_t > h){
-                u_k_delayed = Input[k_t-h];
-            }
-        else
-            u_k_delayed = Input[k_t-1];
-        }
-    }
+    u_k_delayed = Input[(k_t + 1) % BUFFER];
     
     //Disturbance Observer
     float z_k_1 = z_k + (_K_1*(A[0][0]-1)+_K_2*(A[1][0])) * x_k[0][0] \
@@ -487,11 +480,11 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
             }
 
             if (k_t < h){
-                y[0][0] = y[0][0] + (pow(A[0][0],(1-i))*B[0][0]+pow(A[0][1],(1-i))*B[1][0])*(Input[size_fn-1+i] + y2[0][0]);
-                y[1][0] = y[1][0] + (pow(A[1][0],(1-i))*B[0][0]+pow(A[1][1],(1-i))*B[1][0])*(Input[size_fn-1+i] +  y2[1][0]);
+                y[0][0] = y[0][0] + (pow(A[0][0],(1-i))*B[0][0]+pow(A[0][1],(1-i))*B[1][0])*(Input[BUFFER-1+i] + y2[0][0]);
+                y[1][0] = y[1][0] + (pow(A[1][0],(1-i))*B[0][0]+pow(A[1][1],(1-i))*B[1][0])*(Input[BUFFER-1+i] +  y2[1][0]);
             }else{
-                y1[0][0] = y1[0][0] + (pow(A[0][0],(h-i))*B[0][0]+pow(A[0][1],(h-i))*B[1][0])*(Input[size_fn-h+i] + y2[0][0]);
-                y1[1][0] = y1[1][0] + (pow(A[1][0],(h-i))*B[0][0]+pow(A[1][1],(h-i))*B[1][0])*(Input[size_fn-h+i] +  y2[1][0]);
+                y1[0][0] = y1[0][0] + (pow(A[0][0],(h-i))*B[0][0]+pow(A[0][1],(h-i))*B[1][0])*(Input[BUFFER-h+i] + y2[0][0]);
+                y1[1][0] = y1[1][0] + (pow(A[1][0],(h-i))*B[0][0]+pow(A[1][1],(h-i))*B[1][0])*(Input[BUFFER-h+i] +  y2[1][0]);
             }
         }
     }
@@ -538,23 +531,14 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     _motors.set_pitch(pitch_out);
 
     // Next Step
-    if (k_t < buff) {
-        // Store the new value and increment currentIndex
-        Input[k_t] = u_k;
-    } else {
-        // Shift all values one position to the left
-        for (int i = 1; i < buff; ++i) {
-          Input[i-1] = Input[i];
-        }
-        // Store the new value at the end
-        Input[buff-1] = u_k;
-    }
+    Input[k_t] = u_k;
     z_k = z_k_1;
     d_k_h += d_est;
     for(int i = 0; i < 2; i++) {
         Xi_k[i][0] = Xi_k_1[i][0];
     }
-    k_t += 1;
+    k_t = (k_t + 1) % BUFFER;
+    roll_ref = rate_roll_target_rads;
 
 }
 // Update Alt_Hold angle maximum
@@ -587,33 +571,31 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     } else {
         _flags_heli.limit_roll = false;
     }
-        _motors.set_roll(roll_out);    
+
+    float u_k = roll_out;
+    Input[k_t] = u_k;
+    u_k_delayed = Input[(k_t + 1) % BUFFER];
+    _motors.set_roll(u_k_delayed);    
+    k_t = (k_t + 1) % BUFFER;
+
+    //_motors.set_roll(roll_out);    
 
     if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
-
     float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, _dt, _motors.limit.pitch) + _actuator_sysid.y;
-
     // use pid library to calculate ff
-
     float pitch_ff = _pid_rate_pitch.get_ff();
-
     // add feed forward and final output
-
     float pitch_out = pitch_pid + pitch_ff;
-
     // constrain output and update limit flags
-
     if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_pitch = true;
     } else {
         _flags_heli.limit_pitch = false;
     }
-
     // output to motors
-
     _motors.set_pitch(pitch_out);
 
     // Piro-Comp, or Pirouette Compensation is a pre-compensation calculation, which basically rotates the Roll and Pitch Rate I-terms as the
