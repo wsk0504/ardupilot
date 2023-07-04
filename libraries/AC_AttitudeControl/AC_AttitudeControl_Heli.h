@@ -29,7 +29,7 @@
 #define AC_ATTITUDE_HELI_HOVER_ROLL_TRIM_DEFAULT    300
 #define AC_ATTITUDE_HELI_ACRO_OVERSHOOT_ANGLE_RAD   ToRad(30.0f)
 
-#define BUFFER 200
+#define H_D 40 //x초/0.0025(_dt) = x*400
 
 class AC_AttitudeControl_Heli : public AC_AttitudeControl {
 public:
@@ -109,6 +109,8 @@ public:
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
 
+
+
 private:
 
     // To-Do: move these limits flags into the heli motors class
@@ -129,8 +131,9 @@ private:
     // outputs are sent directly to motor class
     void rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
     float rate_target_to_motor_yaw(float rate_yaw_actual_rads, float rate_yaw_rads);
-   // JH 6/21/23 Exp_PDC_time_delay
     void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
+
+   // JH 6/21/23 Exp_PDC_time_delay
 
     //
     // throttle methods
@@ -162,34 +165,35 @@ private:
     AC_HELI_PID     _pid_rate_pitch;
     AC_HELI_PID     _pid_rate_yaw;
     // JH 6/21/23 Exp_PDC_time_delay system parameter
-    AP_Int16 _K_p_1;
-    AP_Int16 _K_p_2;
-    AP_Int16 _K_1;
-    AP_Int16 _K_2;
-    AP_Int16 _P_D;
+    AP_Float _K_p_1;
+    AP_Float  _K_p_2;
+    AP_Float _K_1;
+    AP_Float _K_2;
+    AP_Int8 _P_D;
     static unsigned int k_t;
-    static float Input[BUFFER];
+    static float Input[H_D];
     static float roll_ref;
-    static float roll_cur;
-    float Ac[2][2] = {{0.0f, 1.0f},{0.0f, 0.0f}};
-    float hc = 0.5f; //0.5 delay
+    static float x_p3_k[2][1];
+    static float d_k_h;
+
+    float roll_target;
+    float Ac[2][2] = {{0, 1},{0, 0}};
     uint8_t r = 2;
-    float omega0 = 5.0f;
+    float omega0 = 5;
     float c[3][1] = {0};
     float Ap1[3][3] = {0};
     float Bp[3][1] = {0};
     float Cp[1][3] = {1};
-    float u_k_delayed = 0.0f; // Input 저장소 확인
-    float x_p3_k[2][1] = {0};
-    float d_est = 0.0f;
-    float z_k = 0.0f;
-    float d_k_h = 0.0f;
+    float u_k_delayed = 0; // Input 저장소 확인
+    float d_est = 0;
+    float z_k = 0;
     float Xi_k[3][1]= {0};
     float e_chi[2][1]= {0};
     float Xi_k_1[3][1]= {0};
     float delta_Xi_k[3][1]= {0};
     float y[2][1] = {0};
     float y1[2][1] = {0};   
-    float y2[2][1]= {0};
+    float y2[2][1]= {0}; 
+    float dtt = 0.0025;
 
 };

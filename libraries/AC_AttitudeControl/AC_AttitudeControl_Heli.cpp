@@ -1,9 +1,18 @@
 #include "AC_AttitudeControl_Heli.h"
 #include <AP_HAL/AP_HAL.h>
 unsigned int AC_AttitudeControl_Heli::k_t = 0; // sampling initialized
-float AC_AttitudeControl_Heli::Input[BUFFER] = {0}; // Input initialized
+float AC_AttitudeControl_Heli::Input[H_D] = {0}; // Input initialized
 float AC_AttitudeControl_Heli::roll_ref = 0;
-float AC_AttitudeControl_Heli::roll_cur = 0;
+float AC_AttitudeControl_Heli::x_p3_k[2][1] = {0};
+float AC_AttitudeControl_Heli::d_k_h = 0;
+
+float temp[2][2] = {0};
+float temp1[2][2]={0};
+float temp2[2][1]={0};
+float Cp_Xi_result[2][1]={0};
+float temp3[2][1]={0};
+
+
 // table of user settable parameters
 const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // parameters from parent vehicle
@@ -362,12 +371,15 @@ void AC_AttitudeControl_Heli::rate_controller_run()
         _motors.set_roll(_passthrough_roll / 4500.0f);
         _motors.set_pitch(_passthrough_pitch / 4500.0f);
     } else {
-        if (_P_D == 0){
-        rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y);
+         if (_P_D == 0){ // time delay off
+        rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // state rate, target roll rate, target pitch rate
         }
-        else{
-            exp_pbc_time_delay_system_roll(gyro_latest,_ang_vel_body.x, _ang_vel_body.y);    
-        }
+        else{ // time delay on
+            roll_target= _attitude_target.get_euler_roll(); // target roll update
+            exp_pbc_time_delay_system_roll(gyro_latest, roll_target, _ang_vel_body.y); // state rate, target roll, target pitch rate  
+        } 
+        //// rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // for time delay pid test
+
     }
     if (_flags_heli.tail_passthrough) {
         _motors.set_yaw(_passthrough_yaw / 4500.0f);
@@ -381,7 +393,13 @@ void AC_AttitudeControl_Heli::rate_controller_run()
 }
 
 // JH 6/21/23
+void multiplyMatrix2x1(float A[2][2], float B[2][1], float result[2][1]);
+void multiplyMatrix2x2(float A[2][2], float B[2][2], float result[2][2], int n);
+void powerMatrix(float A[2][2], int power, float result[2][2]);
+void Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt, float A[2][2], float B[2][1], float delta_Xi_k[3][1], float d_est, int r, float result[2][1]);
+void Cp_Xi(int i,  float dt, int h, int r, float delta_Xi_k[3][1], float d_est, float result[2][1]);
 double nchoosek(int n, int k);
+
 // nCr 
 double nchoosek(int n, int k) {
     if (k == 0) return 1;
@@ -394,50 +412,160 @@ double nchoosek(int n, int k) {
     return res;
 }
 
-void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads)
+void multiplyMatrix2x1(float A[2][2], float B[2][1], float result[2][1]) {
+    for(int i=0; i<2; i++) {
+        result[i][0] = 0;
+        for(int j=0; j<2; j++) {
+            result[i][0] += A[i][j] * B[j][0];
+        }
+    }
+}
+
+void multiplyMatrix2x2(float A[2][2], float B[2][2], float result[2][2], int n) {
+    for(int i=0; i<n; i++)
+    {
+        for(int j=0; j<2; j++)
+        {
+            result[i][j] = 0;
+            for(int k=0; k<n; k++)
+            {
+                result[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+}
+
+void powerMatrix(float A[2][2], int power, float result[2][2]) {
+    if (power == 0) {
+        result[0][0] = result[1][1] = 1.0;
+        result[0][1] = result[1][0] = 0.0;
+        return;
+    }
+
+    // Initialize result with A
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+            result[i][j] = A[i][j];
+
+    // Multiply A to result for power - 1 times
+    for (int p = 1; p < power; p++) {
+        multiplyMatrix2x2(result, A, temp, 2);
+        for (int i = 0; i < 2; i++)
+            for (int j = 0; j < 2; j++)
+                result[i][j] = temp[i][j];
+    }
+}
+
+void Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt, float A[2][2], float B[2][1], float delta_Xi_k[3][1], float d_est, int r, float result[2][1]) {
+    int h = k2 - k1;
+
+    float y[2][1] = {0};
+
+    if (h > 1) {
+        for(int i=0; i<h; i++) {
+            powerMatrix(A, h-i, temp1);
+            
+            multiplyMatrix2x1(temp1, B, temp2);
+            
+            Cp_Xi(i, dt, h, r, delta_Xi_k, d_est, Cp_Xi_result);
+            
+            for(int j=0; j<n; j++) {
+                y[j][0] += temp2[j][0]*(fn[H_D-h+i] + Cp_Xi_result[j][0]);
+            }
+        }
+    }
+
+    for(int i=0; i<n; i++) {
+        result[i][0] = y[i][0];
+    }
+}
+
+void Cp_Xi(int i, float dt, int h, int r, float delta_Xi_k[3][1], float d_est, float result[2][1]) {
+    float Cp[H_D];
+
+    if (i <= r) {
+        for(int j=0; j<=i; j++) {
+            if (j==0) {
+                Cp[j] = 1.0/dt;
+            } else {
+                Cp[j] = dt * nchoosek(i,j-1);
+            }
+        }
+
+        for(int j=0; j<2; j++) {
+            result[j][0] = 0;
+            for(int k=0; k<=i; k++) {
+                result[j][0] += Cp[k]*delta_Xi_k[k][0];
+            }
+            result[j][0] += d_est;
+        }
+
+    } else {
+        for(int j=0; j<=r; j++) {
+            if (j==0) {
+                Cp[j] = 1.0/dt;
+            } else {
+                Cp[j] = dt * nchoosek(i,j-1);
+            }
+        }
+
+        for(int j=0; j<2; j++) {
+            result[j][0] = 0;
+            for(int k=0; k<=r; k++) {
+                result[j][0] += Cp[k]*delta_Xi_k[k][0];
+            }
+            result[j][0] += d_est;
+        }
+    }
+}
+
+// Main
+void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
 {
+    //debuging 시 _dt = 약 0.0025sec : 고정
     // reference trajectory
-    float x_d1 = (roll_ref - rate_roll_target_rads)*_dt; 
-    float x_d2 = rate_roll_target_rads;
+    float x_d1 = roll_target_rads;
+    float x_d2 = 0.0f;//(roll_target_rads - roll_ref) / _dt; //0?
     float x_d[2][1] = {{x_d1},{x_d2}};
     // State
-    float x_k[2][1]  = {_ahrs.roll,rate_rads.x};
+    float x_k_1 = rate_rads.x * dtt;
+    float x_k[2][1]  = {{x_k_1},{rate_rads.x}};
 
     // 시스템 파라미터 Ac,A,B,hc,h 선언
-    float A[2][2] = {{1.0f, 0.0f},{0.0f, 1.0f}};
-    float B[2][1] = {{0.0f}, {1.0f}};
-    for (uint8_t i = 0; i < 2; i++){
-        B[i][0] *= _dt;
+    float A[2][2] = {{1, 0},{0, 1}};
+    float B[2][1] = {{0}, {1}};
+    for (int i = 0; i < 2; i++){
+        B[i][0] *= dtt;
         // error 정의
         e_chi[i][0] = x_p3_k[i][0] - x_d[i][0];
         for (int j = 0; j < 2; j++){
-            A[i][j] += Ac[i][j] * _dt;
+            A[i][j] += Ac[i][j] * dtt;
         }    
     }
-    uint16_t h = hc / _dt;
+    // unsigned int h = hc / _dt; -> H_D in .hpp
 
     // predictor 파라미터 r,omega0,c,Ap1,Ap,Bp,Cp
-    for (uint8_t i = 0; i < r+1; i++){
+    for (int i = 0; i < r+1; i++){
         c[i][0] = nchoosek(r+1,i+1) * pow(omega0,i);
-        Cp[0][i] = _dt * nchoosek(h,i+1);
+        Cp[0][i] = dtt * nchoosek(H_D,i+1);
     }
-    for (uint8_t i = 0; i < r; i++){
+    for (int i = 0; i < r; i++){
         Ap1[i][0] = -c[i][0];
         Ap1[i][i+1] = 1;
     }
     Ap1[r][0] = -c[r][0];
-    float Ap[3][3] = {{1.0f,0.0f,0.0f},{0.0f,1.0f,0.0f},{0.0f,0.0f,1.0f}};
-    for (uint8_t i = 0; i < 3; i++){
-        Bp[i][0] = _dt*c[i][0];
-        for (uint8_t j = 0; j < 3; j++){
-            Ap[i][j] += Ap1[i][j] * _dt;
+    float Ap[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
+    for (int i = 0; i < 3; i++){
+        Bp[i][0] = dtt*c[i][0];
+        for (int j = 0; j < 3; j++){
+            Ap[i][j] += Ap1[i][j] * dtt;
         }
     }        
-    Cp[0][0] = Cp[0][0] / _dt;
+    Cp[0][0] = Cp[0][0] / dtt;
 
     // Control Input
     float u_k = _K_p_1*e_chi[0][0] + _K_p_2*e_chi[1][0] - d_k_h;
-    u_k_delayed = Input[(k_t + 1) % BUFFER];
+    u_k_delayed = Input[(k_t + 1) % H_D];
     
     //Disturbance Observer
     float z_k_1 = z_k + (_K_1*(A[0][0]-1)+_K_2*(A[1][0])) * x_k[0][0] \
@@ -445,65 +573,47 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     + (_K_1*(B[0][0])+_K_2*(B[1][0])) * (u_k_delayed + d_est);
     d_est = _K_1*x_k[0][0]+_K_2*x_k[1][0] - z_k;
 
-    // predictor for d(t+h)
-    Xi_k_1[0][0] = Ap[0][0]*Xi_k[0][0]+Ap[0][1]*Xi_k[1][0]+Ap[0][2]*Xi_k[2][0]+Bp[0][0]*d_est;
-    Xi_k_1[1][0] = Ap[1][0]*Xi_k[0][0]+Ap[1][1]*Xi_k[1][0]+Ap[1][2]*Xi_k[2][0]+Bp[1][0]*d_est;
-    Xi_k_1[2][0] = Ap[2][0]*Xi_k[0][0]+Ap[2][1]*Xi_k[1][0]+Ap[2][2]*Xi_k[2][0]+Bp[2][0]*d_est;
+    // predictor for d(t+H_D)
+    for(int i=0; i<3; i++) {
+        Xi_k_1[i][0] = 0;
+        for(int j=0; j<3; j++) {
+            Xi_k_1[i][0] += Ap[i][j]*Xi_k[j][0];
+        }
+        Xi_k_1[i][0] += Bp[i][0]*d_est;
+    }
 
-    for(uint8_t i = 0; i < 3; i++){
+    for(int i = 0; i < 3; i++){
         delta_Xi_k[i][0] = Xi_k_1[i][0] - Xi_k[i][0];
         d_k_h += Cp[0][i]*delta_Xi_k[i][0];
     }
 
 
     // State Prediction
-    if (h > 1){
-        for (uint8_t i = 0; i < h; i++){
-            if (i <= r){
-                float Cp_[1][i+1]={1};
-                for (uint8_t j = 1; j < i; j++){
-                    Cp_[0][j-1] = _dt * nchoosek(i,j-1);
-                }
-                Cp_[0][0] = Cp_[0][0]/_dt;
-                for (uint8_t k = 0; k < i; k++){
-                    y2[k][0] = Cp_[0][k]*delta_Xi_k[k][0] + d_est;
-                }            
-            }else{
-                float Cp_1[1][3] = {1};
-                    for (uint8_t j = 1; j < r; j++){
-                    Cp_1[0][j-1] = _dt * nchoosek(i,j-1);
-                    }
-                Cp_1[0][0] = Cp_1[0][0]/_dt;
-                for (uint8_t k = 0; k < i; k++){
-                    y2[k][0] = Cp_1[0][k]*delta_Xi_k[k][0] + d_est;
-                }
-            }
-
-            if (k_t < h){
-                y[0][0] = y[0][0] + (pow(A[0][0],(1-i))*B[0][0]+pow(A[0][1],(1-i))*B[1][0])*(Input[BUFFER-1+i] + y2[0][0]);
-                y[1][0] = y[1][0] + (pow(A[1][0],(1-i))*B[0][0]+pow(A[1][1],(1-i))*B[1][0])*(Input[BUFFER-1+i] +  y2[1][0]);
-            }else{
-                y1[0][0] = y1[0][0] + (pow(A[0][0],(h-i))*B[0][0]+pow(A[0][1],(h-i))*B[1][0])*(Input[BUFFER-h+i] + y2[0][0]);
-                y1[1][0] = y1[1][0] + (pow(A[1][0],(h-i))*B[0][0]+pow(A[1][1],(h-i))*B[1][0])*(Input[BUFFER-h+i] +  y2[1][0]);
-            }
+    x_p3_k[0][0] = 0;
+    x_p3_k[1][0] = 0;
+    
+    if(k_t < H_D) {
+        powerMatrix(A, H_D, temp);
+        multiplyMatrix2x1(temp, x_k, x_p3_k);
+        Numerical_Integral1(2, 1, k_t, Input, dtt, A, B, delta_Xi_k, d_est, r, temp2);
+        for(int i=0; i<2; i++) {
+            x_p3_k[i][0] += temp2[i][0];
+        }
+    } else {
+        powerMatrix(A, H_D, temp);
+        multiplyMatrix2x1(temp, x_k, x_p3_k);
+        Numerical_Integral1(2, k_t-H_D, k_t, Input, dtt, A, B, delta_Xi_k, d_est, r, temp3);
+        for(int i=0; i<2; i++) {
+            x_p3_k[i][0] += temp3[i][0];
         }
     }
 
-    if (k_t < h){
-        x_p3_k[0][0] = pow(A[0][0],h)*x_k[0][0] + pow(A[0][1],h)*x_k[1][0]; 
-        x_p3_k[1][0] = pow(A[1][0],h)*x_k[0][0] + pow(A[1][1],h)*x_k[1][0];
-        x_p3_k[0][0] += y[0][0];
-        x_p3_k[1][0] += y[1][0];
-    }else{
-        x_p3_k[0][0] = pow(A[0][0],h)*x_k[0][0] + pow(A[0][1],h)*x_k[1][0]; 
-        x_p3_k[1][0] = pow(A[1][0],h)*x_k[0][0] + pow(A[1][1],h)*x_k[1][0];
-        x_p3_k[0][0] += y1[0][0];
-        x_p3_k[1][0] += y1[1][0];
-
-    }
-
+    // debugging for numerical integral
+    //x_p3_k[0][0] = y1[0][0];
+    //x_p3_k[1][0] = y1[1][0];
     
-    // 실제 모터 제어 필요한 값 제한
+    
+    // 실제 모터 제어 필요한 값 제한 (safety)
     float roll_out = u_k_delayed;
     if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
@@ -514,8 +624,18 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // output to motor
     _motors.set_roll(roll_out);
 
+    // Next Step
+    Input[k_t] = u_k;
+    z_k = z_k_1;
+    d_k_h += d_est;
+    for(int i = 0; i < 2; i++) {
+        Xi_k[i][0] = Xi_k_1[i][0];
+    }
+    k_t = (k_t + 1) % H_D;
+    roll_ref = roll_target_rads;
+
     // output for pitch (ppid)
-    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, _dt, _motors.limit.pitch) + _actuator_sysid.y;
+    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, dtt, _motors.limit.pitch) + _actuator_sysid.y;
     // use pid library to calculate ff
     float pitch_ff = _pid_rate_pitch.get_ff();
     // add feed forward and final output
@@ -529,16 +649,6 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     }
     // output to motors
     _motors.set_pitch(pitch_out);
-
-    // Next Step
-    Input[k_t] = u_k;
-    z_k = z_k_1;
-    d_k_h += d_est;
-    for(int i = 0; i < 2; i++) {
-        Xi_k[i][0] = Xi_k_1[i][0];
-    }
-    k_t = (k_t + 1) % BUFFER;
-    roll_ref = rate_roll_target_rads;
 
 }
 // Update Alt_Hold angle maximum
@@ -571,14 +681,18 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     } else {
         _flags_heli.limit_roll = false;
     }
-
+    // for time delay pid test
+/*     if(_P_D==0){
+        _motors.set_roll(roll_out);
+    }else{
     float u_k = roll_out;
     Input[k_t] = u_k;
-    u_k_delayed = Input[(k_t + 1) % BUFFER];
+    u_k_delayed = Input[(k_t + 1) % H_D];
     _motors.set_roll(u_k_delayed);    
-    k_t = (k_t + 1) % BUFFER;
+    k_t = (k_t + 1) % H_D;
+    } */
 
-    //_motors.set_roll(roll_out);    
+    _motors.set_roll(roll_out);
 
     if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
