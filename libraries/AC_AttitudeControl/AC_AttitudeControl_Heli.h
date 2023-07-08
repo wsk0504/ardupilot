@@ -29,7 +29,6 @@
 #define AC_ATTITUDE_HELI_HOVER_ROLL_TRIM_DEFAULT    300
 #define AC_ATTITUDE_HELI_ACRO_OVERSHOOT_ANGLE_RAD   ToRad(30.0f)
 
-#define H_D 40 //x초/0.0025(_dt) = x*400
 
 class AC_AttitudeControl_Heli : public AC_AttitudeControl {
 public:
@@ -170,30 +169,4 @@ private:
     AP_Float _K_1;
     AP_Float _K_2;
     AP_Int8 _P_D;
-    static unsigned int k_t;
-    static float Input[H_D];
-    static float roll_ref;
-    static float x_p3_k[2][1];
-    static float d_k_h;
-
-    float roll_target;
-    float Ac[2][2] = {{0, 1},{0, 0}};
-    uint8_t r = 2;
-    float omega0 = 5;
-    float c[3][1] = {0};
-    float Ap1[3][3] = {0};
-    float Bp[3][1] = {0};
-    float Cp[1][3] = {1};
-    float u_k_delayed = 0; // Input 저장소 확인
-    float d_est = 0;
-    float z_k = 0;
-    float Xi_k[3][1]= {0};
-    float e_chi[2][1]= {0};
-    float Xi_k_1[3][1]= {0};
-    float delta_Xi_k[3][1]= {0};
-    float y[2][1] = {0};
-    float y1[2][1] = {0};   
-    float y2[2][1]= {0}; 
-    float dtt = 0.0025;
-
 };

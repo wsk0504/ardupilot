@@ -1,16 +1,45 @@
 #include "AC_AttitudeControl_Heli.h"
 #include <AP_HAL/AP_HAL.h>
-unsigned int AC_AttitudeControl_Heli::k_t = 0; // sampling initialized
-float AC_AttitudeControl_Heli::Input[H_D] = {0}; // Input initialized
-float AC_AttitudeControl_Heli::roll_ref = 0;
-float AC_AttitudeControl_Heli::x_p3_k[2][1] = {0};
-float AC_AttitudeControl_Heli::d_k_h = 0;
+#include <AP_Math/AP_Math.h>
 
-float temp[2][2] = {0};
-float temp1[2][2]={0};
-float temp2[2][1]={0};
-float Cp_Xi_result[2][1]={0};
-float temp3[2][1]={0};
+//전역변수
+int k = 1;
+float dt = 0.0025f;
+const uint16_t H_D = 5; //x초/0.0025(_dt) = x*400
+//bool k_over_h = false;
+
+Matrix3f eye (1.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 1.0f);
+Matrix3f A (1.0f, dt, 0.0f,
+            0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f);
+Vector3f B (0.0f, dt, 0.0f);
+
+// predictor parameter
+int r = 2;
+Matrix3f Ap (0.9625f, 0.0025f, 0.0f,
+            -0.1875f, 1.0f, 0.0025f,
+            -0.3125f, 0.0f, 1.0f);
+Vector3f Bp (0.0375f,
+            0.1875f,
+            0.3125f);
+Vector3f Cp  (200.0f, 49.75f, 3283.5f);
+
+Vector3f x_k (0.0f, 0.0f, 0.0f);
+float u_k_delayed = 0.00f;
+float Input[H_D] = {0};
+Vector3f x_p3_k (0.0f, 0.0f, 0.0f);
+Vector3f x_k_1 (0.0f, 0.0f, 0.0f);
+
+float d_est = 0.0f;
+float z_k = 0.0f;
+float z_k_1 = 0.0f;
+
+float d_k_h = 0.0f;
+Vector3f Xi_k (0.0f, 0.0f, 0.0f);
+Vector3f Xi_k_1 (0.0f, 0.0f, 0.0f);
+Vector3f delta_Xi_k (0.0f, 0.0f, 0.0f); 
 
 
 // table of user settable parameters
@@ -256,13 +285,12 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("PIRO_COMP",    5, AC_AttitudeControl_Heli, _piro_comp_enabled, 0),
     
-    AP_GROUPINFO("K_P_1",    6, AC_AttitudeControl_Heli, _K_p_1, -5),
-    AP_GROUPINFO("K_P_2",    7, AC_AttitudeControl_Heli, _K_p_2,-9),
-    AP_GROUPINFO("DOB_K_1",    8, AC_AttitudeControl_Heli, _K_1, 0),
-    AP_GROUPINFO("DOB_K_2",    9, AC_AttitudeControl_Heli, _K_2, 10),
+    AP_GROUPINFO("K_P_1",    6, AC_AttitudeControl_Heli, _K_p_1, -0.001),
+    AP_GROUPINFO("K_P_2",    7, AC_AttitudeControl_Heli, _K_p_2,-0.001),
+    AP_GROUPINFO("DOB_K_1",    8, AC_AttitudeControl_Heli, _K_1, 0.001),
+    AP_GROUPINFO("DOB_K_2",    9, AC_AttitudeControl_Heli, _K_2, 0.001),
     AP_GROUPINFO("PID_OR_DELAY",    10, AC_AttitudeControl_Heli, _P_D, 0),
 
-    
     AP_GROUPEND
 };
 
@@ -373,12 +401,10 @@ void AC_AttitudeControl_Heli::rate_controller_run()
     } else {
          if (_P_D == 0){ // time delay off
         rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // state rate, target roll rate, target pitch rate
-        }
-        else{ // time delay on
-            roll_target= _attitude_target.get_euler_roll(); // target roll update
-            exp_pbc_time_delay_system_roll(gyro_latest, roll_target, _ang_vel_body.y); // state rate, target roll, target pitch rate  
+        }else{ // time delay on
+            exp_pbc_time_delay_system_roll(gyro_latest, _euler_rate_target.x, _ang_vel_body.y); // state rate, target roll, target pitch rate  
         } 
-        //// rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // for time delay pid test
+        // rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // for time delay pid test
 
     }
     if (_flags_heli.tail_passthrough) {
@@ -392,229 +418,83 @@ void AC_AttitudeControl_Heli::rate_controller_run()
 
 }
 
-// JH 6/21/23
-void multiplyMatrix2x1(float A[2][2], float B[2][1], float result[2][1]);
-void multiplyMatrix2x2(float A[2][2], float B[2][2], float result[2][2], int n);
-void powerMatrix(float A[2][2], int power, float result[2][2]);
-void Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt, float A[2][2], float B[2][1], float delta_Xi_k[3][1], float d_est, int r, float result[2][1]);
-void Cp_Xi(int i,  float dt, int h, int r, float delta_Xi_k[3][1], float d_est, float result[2][1]);
-double nchoosek(int n, int k);
+ 
+// Forward declaration
+float nchoosek(int n, int m);
+Vector3f Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt_, Matrix3f A_, Vector3f B_, Vector3f delta_Xi_k_, float d_est_, int R);
+float Cp_Xi(int i, float dt, int h_, int R, Vector3f delta_Xi_k_, float d_est_);
 
 // nCr 
-double nchoosek(int n, int k) {
-    if (k == 0) return 1;
-    if (k > n / 2) return nchoosek(n, n-k); // Take advantage of symmetry
-    double res = 1;
-    for (int i = 1; i <= k; i++) {
-        res *= (n - k + i);
-        res /= i;
-    }
-    return res;
+float nchoosek(int n, int m) {
+    if(n == m || m == 0) 
+        return 1; 
+    else 
+        return nchoosek(n - 1, m - 1) + nchoosek(n - 1, m);
 }
-
-void multiplyMatrix2x1(float A[2][2], float B[2][1], float result[2][1]) {
-    for(int i=0; i<2; i++) {
-        result[i][0] = 0;
-        for(int j=0; j<2; j++) {
-            result[i][0] += A[i][j] * B[j][0];
+Vector3f Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt_, Matrix3f A_, Vector3f B_, Vector3f delta_Xi_k_, float d_est_, int R) {
+    int h_ = k2 - k1;
+    Vector3f y (0.0f,0.0f,0.0f);
+        for(int i = 1; i <= h_; i++) {
+            y += A_.power(h_ - i) * B_ * (fn[H_D - h_ + i -1]+ Cp_Xi(i, dt_, h_, R, delta_Xi_k_, d_est_));
         }
-    }
+    return y;
 }
 
-void multiplyMatrix2x2(float A[2][2], float B[2][2], float result[2][2], int n) {
-    for(int i=0; i<n; i++)
-    {
-        for(int j=0; j<2; j++)
+float Cp_Xi(int i, float dt_, int h_, int R, Vector3f delta_Xi_k_, float d_est_) {
+    float y2 = 0.0f;
+    Vector3f Cp_ (1.0f, 1.0f, 1.0f);
+    if (i <= R){
+        for (int j=1;j<=i;j++){
+            Cp_[j] = dt_*nchoosek(i,j);
+        }
+        Cp_[0] = Cp_[0]/dt_;
+        for(int j = 0; j <= i; j++)
         {
-            result[i][j] = 0;
-            for(int k=0; k<n; k++)
-            {
-                result[i][j] += A[i][k] * B[k][j];
-            }
+            y2 += Cp_[j] * delta_Xi_k_[j];
         }
+        y2 += d_est_;
+    }else{
+        for (int j=1;j<=R;j++){
+            Cp_[j] = dt_*nchoosek(i,j);
+        }
+        Cp_[0] = Cp_[0]/dt_;
+        for(int j = 0; j < 3; j++)
+        {
+            y2 += Cp_[j] * delta_Xi_k_[j];
+        }
+        y2 += d_est_;
     }
+    return y2;    
 }
 
-void powerMatrix(float A[2][2], int power, float result[2][2]) {
-    if (power == 0) {
-        result[0][0] = result[1][1] = 1.0;
-        result[0][1] = result[1][0] = 0.0;
-        return;
-    }
-
-    // Initialize result with A
-    for (int i = 0; i < 2; i++)
-        for (int j = 0; j < 2; j++)
-            result[i][j] = A[i][j];
-
-    // Multiply A to result for power - 1 times
-    for (int p = 1; p < power; p++) {
-        multiplyMatrix2x2(result, A, temp, 2);
-        for (int i = 0; i < 2; i++)
-            for (int j = 0; j < 2; j++)
-                result[i][j] = temp[i][j];
-    }
-}
-
-void Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt, float A[2][2], float B[2][1], float delta_Xi_k[3][1], float d_est, int r, float result[2][1]) {
-    int h = k2 - k1;
-
-    float y[2][1] = {0};
-
-    if (h > 1) {
-        for(int i=0; i<h; i++) {
-            powerMatrix(A, h-i, temp1);
-            
-            multiplyMatrix2x1(temp1, B, temp2);
-            
-            Cp_Xi(i, dt, h, r, delta_Xi_k, d_est, Cp_Xi_result);
-            
-            for(int j=0; j<n; j++) {
-                y[j][0] += temp2[j][0]*(fn[H_D-h+i] + Cp_Xi_result[j][0]);
-            }
-        }
-    }
-
-    for(int i=0; i<n; i++) {
-        result[i][0] = y[i][0];
-    }
-}
-
-void Cp_Xi(int i, float dt, int h, int r, float delta_Xi_k[3][1], float d_est, float result[2][1]) {
-    float Cp[H_D];
-
-    if (i <= r) {
-        for(int j=0; j<=i; j++) {
-            if (j==0) {
-                Cp[j] = 1.0/dt;
-            } else {
-                Cp[j] = dt * nchoosek(i,j-1);
-            }
-        }
-
-        for(int j=0; j<2; j++) {
-            result[j][0] = 0;
-            for(int k=0; k<=i; k++) {
-                result[j][0] += Cp[k]*delta_Xi_k[k][0];
-            }
-            result[j][0] += d_est;
-        }
-
-    } else {
-        for(int j=0; j<=r; j++) {
-            if (j==0) {
-                Cp[j] = 1.0/dt;
-            } else {
-                Cp[j] = dt * nchoosek(i,j-1);
-            }
-        }
-
-        for(int j=0; j<2; j++) {
-            result[j][0] = 0;
-            for(int k=0; k<=r; k++) {
-                result[j][0] += Cp[k]*delta_Xi_k[k][0];
-            }
-            result[j][0] += d_est;
-        }
-    }
-}
 
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
-{
-    //debuging 시 _dt = 약 0.0025sec : 고정
-    // reference trajectory
+{   
+    //if (k > 4000){ //10초 이후 시작 이전엔 pid제어
     float x_d1 = roll_target_rads;
-    float x_d2 = 0.0f;//(roll_target_rads - roll_ref) / _dt; //0?
-    float x_d[2][1] = {{x_d1},{x_d2}};
-    // State
-    float x_k_1 = rate_rads.x * dtt;
-    float x_k[2][1]  = {{x_k_1},{rate_rads.x}};
+    //float x_d1 = 5.0f;// for debug
+    float x_d2 = 0.0f;    
+    Vector3f x_d (x_d1, x_d2, 0);
 
-    // 시스템 파라미터 Ac,A,B,hc,h 선언
-    float A[2][2] = {{1, 0},{0, 1}};
-    float B[2][1] = {{0}, {1}};
-    for (int i = 0; i < 2; i++){
-        B[i][0] *= dtt;
-        // error 정의
-        e_chi[i][0] = x_p3_k[i][0] - x_d[i][0];
-        for (int j = 0; j < 2; j++){
-            A[i][j] += Ac[i][j] * dtt;
-        }    
-    }
-    // unsigned int h = hc / _dt; -> H_D in .hpp
+    Vector3f e_chi = x_p3_k - x_d;
+    Vector3f K_p (_K_p_1, _K_p_2, 0);
+    float u_k = K_p * e_chi - d_k_h;
 
-    // predictor 파라미터 r,omega0,c,Ap1,Ap,Bp,Cp
-    for (int i = 0; i < r+1; i++){
-        c[i][0] = nchoosek(r+1,i+1) * pow(omega0,i);
-        Cp[0][i] = dtt * nchoosek(H_D,i+1);
-    }
-    for (int i = 0; i < r; i++){
-        Ap1[i][0] = -c[i][0];
-        Ap1[i][i+1] = 1;
-    }
-    Ap1[r][0] = -c[r][0];
-    float Ap[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
-    for (int i = 0; i < 3; i++){
-        Bp[i][0] = dtt*c[i][0];
-        for (int j = 0; j < 3; j++){
-            Ap[i][j] += Ap1[i][j] * dtt;
-        }
-    }        
-    Cp[0][0] = Cp[0][0] / dtt;
+    u_k_delayed = Input[k-1];
 
-    // Control Input
-    float u_k = _K_p_1*e_chi[0][0] + _K_p_2*e_chi[1][0] - d_k_h;
-    u_k_delayed = Input[(k_t + 1) % H_D];
-    
-    //Disturbance Observer
-    float z_k_1 = z_k + (_K_1*(A[0][0]-1)+_K_2*(A[1][0])) * x_k[0][0] \
-    + (_K_1*(A[0][1])+_K_2*(A[1][1]-1)) * x_k[1][0] \
-    + (_K_1*(B[0][0])+_K_2*(B[1][0])) * (u_k_delayed + d_est);
-    d_est = _K_1*x_k[0][0]+_K_2*x_k[1][0] - z_k;
+    Vector3f K (_K_1, _K_2, 0);
+    z_k_1 = z_k + K*((A-eye)*x_k + B*(u_k_delayed+d_est));
+    d_est = K*x_k - z_k;
 
-    // predictor for d(t+H_D)
-    for(int i=0; i<3; i++) {
-        Xi_k_1[i][0] = 0;
-        for(int j=0; j<3; j++) {
-            Xi_k_1[i][0] += Ap[i][j]*Xi_k[j][0];
-        }
-        Xi_k_1[i][0] += Bp[i][0]*d_est;
-    }
+    //predictor for d(t+h)
+    Xi_k_1 = Ap*Xi_k + Bp*d_est;
+    delta_Xi_k = Xi_k_1-Xi_k; // modified
+    //delta_Xi_k = Vector3f(Xi_k_1[1] - Xi_k[1], Xi_k_1[2] - Xi_k[2], Xi_k_1[3] - Xi_k[3]);
+    d_k_h = Cp*delta_Xi_k + d_est;
 
-    for(int i = 0; i < 3; i++){
-        delta_Xi_k[i][0] = Xi_k_1[i][0] - Xi_k[i][0];
-        d_k_h += Cp[0][i]*delta_Xi_k[i][0];
-    }
-
-
-    // State Prediction
-    x_p3_k[0][0] = 0;
-    x_p3_k[1][0] = 0;
-    
-    if(k_t < H_D) {
-        powerMatrix(A, H_D, temp);
-        multiplyMatrix2x1(temp, x_k, x_p3_k);
-        Numerical_Integral1(2, 1, k_t, Input, dtt, A, B, delta_Xi_k, d_est, r, temp2);
-        for(int i=0; i<2; i++) {
-            x_p3_k[i][0] += temp2[i][0];
-        }
-    } else {
-        powerMatrix(A, H_D, temp);
-        multiplyMatrix2x1(temp, x_k, x_p3_k);
-        Numerical_Integral1(2, k_t-H_D, k_t, Input, dtt, A, B, delta_Xi_k, d_est, r, temp3);
-        for(int i=0; i<2; i++) {
-            x_p3_k[i][0] += temp3[i][0];
-        }
-    }
-
-    // debugging for numerical integral
-    //x_p3_k[0][0] = y1[0][0];
-    //x_p3_k[1][0] = y1[1][0];
-    
-    
-    // 실제 모터 제어 필요한 값 제한 (safety)
-    float roll_out = u_k_delayed;
+    // Constraint (safety)
+/*     float roll_out = u_k_delayed;
     if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_roll = true;
@@ -622,20 +502,87 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         _flags_heli.limit_roll = false;
     }
     // output to motor
-    _motors.set_roll(roll_out);
+    _motors.set_roll(roll_out); */
 
-    // Next Step
-    Input[k_t] = u_k;
-    z_k = z_k_1;
-    d_k_h += d_est;
-    for(int i = 0; i < 2; i++) {
-        Xi_k[i][0] = Xi_k_1[i][0];
+
+     Quaternion attitude;
+    AP::ahrs().get_quat_body_to_ned(attitude);
+    float x_1 = attitude.get_euler_roll();
+    float x_2 = rate_rads.x;
+    x_k = Vector3f(x_1,x_2,0); 
+
+    //for debug!
+/*     float d = 3*sin(2*3.142*k/2000)*k;
+    x_k_1 = A*x_k + B*u_k_delayed + B*d;
+   _motors.set_roll(0.1);
+   _motors.set_pitch(0.1); */
+
+     if (_flags_heli.leaky_i) {
+        _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
-    k_t = (k_t + 1) % H_D;
-    roll_ref = roll_target_rads;
+    float roll_pid = _pid_rate_roll.update_all( _ang_vel_body.x, rate_rads.x, _dt, _motors.limit.roll) + _actuator_sysid.x;
+    float roll_ff = _pid_rate_roll.get_ff();
+    float roll_out = roll_pid + roll_ff;
+    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_roll = true;
+    } else {
+        _flags_heli.limit_roll = false;
+    }    _motors.set_roll(roll_out); 
+ 
+    Input[k-1] = u_k;
 
+    // state prediction
+    if (k < H_D){
+        x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,1,k,Input,dt,A,B,delta_Xi_k,d_est,r); 
+        //for debug
+        //x_p3_k = A.power(H_D)*x_k;
+    }else{
+        x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,k-H_D,k,Input,dt,A,B,delta_Xi_k,d_est,r);
+        //for debug
+        //x_p3_k = A.power(H_D)*x_k; 
+    }
+    k = (k%H_D)+1;
+    x_k = x_k_1;
+    z_k = z_k_1;
+    Xi_k = Xi_k_1;
+
+         // output for pitch (ppid)
+if (_flags_heli.leaky_i) {
+        _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
+    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, dt, _motors.limit.pitch) + _actuator_sysid.y;
+    // use pid library to calculate ff
+    float pitch_ff = _pid_rate_pitch.get_ff();
+    // add feed forward and final output
+    float pitch_out = pitch_pid + pitch_ff;
+    // constrain output and update limit flags
+    if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_pitch = true;
+    } else {
+        _flags_heli.limit_pitch = false;
+    }
+    // output to motors
+    _motors.set_pitch(pitch_out); 
+
+    /*} else{
+
+    if (_flags_heli.leaky_i) {
+        _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
+    }
+    float roll_pid = _pid_rate_roll.update_all( _ang_vel_body.x, rate_rads.x, _dt, _motors.limit.roll) + _actuator_sysid.x;
+    float roll_ff = _pid_rate_roll.get_ff();
+    float roll_out = roll_pid + roll_ff;
+    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
+        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
+        _flags_heli.limit_roll = true;
+    } else {
+        _flags_heli.limit_roll = false;
+    }    _motors.set_roll(roll_out);
     // output for pitch (ppid)
-    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, dtt, _motors.limit.pitch) + _actuator_sysid.y;
+    if (_flags_heli.leaky_i) {
+        _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
+    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, dt, _motors.limit.pitch) + _actuator_sysid.y;
     // use pid library to calculate ff
     float pitch_ff = _pid_rate_pitch.get_ff();
     // add feed forward and final output
@@ -650,6 +597,9 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // output to motors
     _motors.set_pitch(pitch_out);
 
+    k = k+1;
+    } */
+}
 }
 // Update Alt_Hold angle maximum
 void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
@@ -669,6 +619,17 @@ void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
 // rate_bf_to_motor_roll_pitch - ask the rate controller to calculate the motor outputs to achieve the target rate in radians/second
 void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads)
 {
+   
+    // for time delay pid test
+/*     if(_P_D==0){
+        _motors.set_roll(roll_out);
+    }else{
+    float u_k = roll_out;
+    Input[k_t] = u_k;
+    u_k_delayed = Input[(k_t + 1) % H_D];
+    _motors.set_roll(u_k_delayed);    
+    k_t = (k_t + 1) % H_D;
+    } */
     if (_flags_heli.leaky_i) {
         _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
@@ -680,21 +641,8 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
         _flags_heli.limit_roll = true;
     } else {
         _flags_heli.limit_roll = false;
-    }
-    // for time delay pid test
-/*     if(_P_D==0){
-        _motors.set_roll(roll_out);
-    }else{
-    float u_k = roll_out;
-    Input[k_t] = u_k;
-    u_k_delayed = Input[(k_t + 1) % H_D];
-    _motors.set_roll(u_k_delayed);    
-    k_t = (k_t + 1) % H_D;
-    } */
-
-    _motors.set_roll(roll_out);
-
-    if (_flags_heli.leaky_i) {
+    }    _motors.set_roll(roll_out);
+if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
     float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, _dt, _motors.limit.pitch) + _actuator_sysid.y;
@@ -712,6 +660,9 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     // output to motors
     _motors.set_pitch(pitch_out);
 
+    k = k+1;
+    
+    
     // Piro-Comp, or Pirouette Compensation is a pre-compensation calculation, which basically rotates the Roll and Pitch Rate I-terms as the
     // helicopter rotates in yaw.  Much of the built-up I-term is needed to tip the disk into the incoming wind.  Fast yawing can create an instability
     // as the built-up I-term in one axis must be reduced, while the other increases.  This helps solve that by rotating the I-terms before the error occurs.

@@ -259,6 +259,27 @@ void Matrix3<T>::from_axis_angle(const Vector3<T> &v, T theta)
     c.z = t*z*z + C;
 }
 
+// power of the matrix
+template <typename T>
+Matrix3<T> Matrix3<T>::power(int n) const {
+    if (n == 0) {
+        // If n is 0, return the identity matrix
+        Matrix3<T> identity;
+        identity.a.x = identity.b.y = identity.c.z = 1;
+        return identity;
+    } else if (n == 1) {
+        // If n is 1, return the matrix itself
+        return *this;
+    } else {
+        // If n is greater than 1, multiply the matrix by itself n times
+        Matrix3<T> result = *this;
+        for (int i = 1; i < n; i++) {
+            result = result * (*this);
+        }
+        return result;
+    }
+}
+
 
 // define for float and double
 template class Matrix3<float>;

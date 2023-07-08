@@ -267,6 +267,9 @@ public:
     // See: https://en.wikipedia.org/wiki/Rotation_matrix#General_rotations
     // "Rotation matrix from axis and angle"
     void        from_axis_angle(const Vector3<T> &v, T theta);
+
+    // power of the matrix
+    Matrix3 power(int n) const;
     
     // normalize a rotation matrix
     void        normalize(void);
