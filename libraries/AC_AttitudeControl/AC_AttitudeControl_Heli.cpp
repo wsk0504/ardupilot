@@ -5,7 +5,7 @@
 //전역변수
 int k = 1;
 float dt = 0.0025f;
-const uint16_t H_D = 5; //x초/0.0025(_dt) = x*400
+const uint16_t H_D = 20; //x초/0.0025(_dt) = x*400
 //bool k_over_h = false;
 
 Matrix3f eye (1.0f, 0.0f, 0.0f,
@@ -494,7 +494,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     d_k_h = Cp*delta_Xi_k + d_est;
 
     // Constraint (safety)
-/*     float roll_out = u_k_delayed;
+    float roll_out = u_k_delayed;
     if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_roll = true;
@@ -502,7 +502,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         _flags_heli.limit_roll = false;
     }
     // output to motor
-    _motors.set_roll(roll_out); */
+    _motors.set_roll(roll_out); 
 
 
      Quaternion attitude;
@@ -515,21 +515,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
 /*     float d = 3*sin(2*3.142*k/2000)*k;
     x_k_1 = A*x_k + B*u_k_delayed + B*d;
    _motors.set_roll(0.1);
-   _motors.set_pitch(0.1); */
+   _motors.set_pitch(0.1);*/ 
 
-     if (_flags_heli.leaky_i) {
-        _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
-    }
-    float roll_pid = _pid_rate_roll.update_all( _ang_vel_body.x, rate_rads.x, _dt, _motors.limit.roll) + _actuator_sysid.x;
-    float roll_ff = _pid_rate_roll.get_ff();
-    float roll_out = roll_pid + roll_ff;
-    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
-        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
-        _flags_heli.limit_roll = true;
-    } else {
-        _flags_heli.limit_roll = false;
-    }    _motors.set_roll(roll_out); 
- 
     Input[k-1] = u_k;
 
     // state prediction
