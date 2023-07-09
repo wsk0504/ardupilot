@@ -29,7 +29,6 @@
 #define AC_ATTITUDE_HELI_HOVER_ROLL_TRIM_DEFAULT    300
 #define AC_ATTITUDE_HELI_ACRO_OVERSHOOT_ANGLE_RAD   ToRad(30.0f)
 
-
 class AC_AttitudeControl_Heli : public AC_AttitudeControl {
 public:
     AC_AttitudeControl_Heli( AP_AHRS_View &ahrs,
@@ -131,8 +130,6 @@ private:
     void rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
     float rate_target_to_motor_yaw(float rate_yaw_actual_rads, float rate_yaw_rads);
     void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
-
-   // JH 6/21/23 Exp_PDC_time_delay
 
     //
     // throttle methods

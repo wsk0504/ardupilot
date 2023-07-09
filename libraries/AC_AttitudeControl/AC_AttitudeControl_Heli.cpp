@@ -26,6 +26,8 @@ Vector3f Bp (0.0375f,
             0.3125f);
 Vector3f Cp  (200.0f, 49.75f, 3283.5f);
 
+float x_1 = 0.0f;
+float x_2 = 0.0f;
 Vector3f x_k (0.0f, 0.0f, 0.0f);
 float u_k_delayed = 0.00f;
 float Input[H_D] = {0};
@@ -40,6 +42,8 @@ float d_k_h = 0.0f;
 Vector3f Xi_k (0.0f, 0.0f, 0.0f);
 Vector3f Xi_k_1 (0.0f, 0.0f, 0.0f);
 Vector3f delta_Xi_k (0.0f, 0.0f, 0.0f); 
+
+Quaternion attitude_quat;
 
 
 // table of user settable parameters
@@ -432,11 +436,15 @@ float nchoosek(int n, int m) {
         return nchoosek(n - 1, m - 1) + nchoosek(n - 1, m);
 }
 Vector3f Numerical_Integral1(int n, int k1, int k2, float fn[H_D], float dt_, Matrix3f A_, Vector3f B_, Vector3f delta_Xi_k_, float d_est_, int R) {
-    int h_ = k2 - k1;
+    //int h_ = k2 - k1;
     Vector3f y (0.0f,0.0f,0.0f);
-        for(int i = 1; i <= h_; i++) {
-            y += A_.power(h_ - i) * B_ * (fn[H_D - h_ + i -1]+ Cp_Xi(i, dt_, h_, R, delta_Xi_k_, d_est_));
+    //if (h_ > 1){
+        //for(int i = 1; i <= h_; i++) {
+        for(int i = 1; i <= H_D; i++) {    
+            //y += A_.power(h_ - i) * B_ * (fn[H_D - h_ + i -1]+ Cp_Xi(i, dt_, h_, R, delta_Xi_k_, d_est_));
+            y += A_.power(H_D - i) * B_ * (fn[i -1]+ Cp_Xi(i, dt_, H_D, R, delta_Xi_k_, d_est_));
         }
+    //}
     return y;
 }
 
@@ -471,7 +479,6 @@ float Cp_Xi(int i, float dt_, int h_, int R, Vector3f delta_Xi_k_, float d_est_)
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
 {   
-    //if (k > 4000){ //10초 이후 시작 이전엔 pid제어
     float x_d1 = roll_target_rads;
     //float x_d1 = 5.0f;// for debug
     float x_d2 = 0.0f;    
@@ -504,11 +511,10 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // output to motor
     _motors.set_roll(roll_out); 
 
+    AP::ahrs().get_quat_body_to_ned(attitude_quat);
+    x_1 = attitude_quat.get_euler_roll();
+    x_2 = rate_rads.x;
 
-     Quaternion attitude;
-    AP::ahrs().get_quat_body_to_ned(attitude);
-    float x_1 = attitude.get_euler_roll();
-    float x_2 = rate_rads.x;
     x_k = Vector3f(x_1,x_2,0); 
 
     //for debug!
@@ -520,52 +526,21 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     Input[k-1] = u_k;
 
     // state prediction
-    if (k < H_D){
-        x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,1,k,Input,dt,A,B,delta_Xi_k,d_est,r); 
+    //if (k < H_D){ //k는 0부터 H_D사이에만 움직임.
+        //x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,1,k,Input,dt,A,B,delta_Xi_k,d_est,r); 
         //for debug
         //x_p3_k = A.power(H_D)*x_k;
-    }else{
+    //}else{
         x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,k-H_D,k,Input,dt,A,B,delta_Xi_k,d_est,r);
         //for debug
         //x_p3_k = A.power(H_D)*x_k; 
-    }
+    //}
+    // k = k + 1
     k = (k%H_D)+1;
     x_k = x_k_1;
     z_k = z_k_1;
     Xi_k = Xi_k_1;
 
-         // output for pitch (ppid)
-if (_flags_heli.leaky_i) {
-        _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
-    float pitch_pid = _pid_rate_pitch.update_all(rate_pitch_target_rads, rate_rads.y, dt, _motors.limit.pitch) + _actuator_sysid.y;
-    // use pid library to calculate ff
-    float pitch_ff = _pid_rate_pitch.get_ff();
-    // add feed forward and final output
-    float pitch_out = pitch_pid + pitch_ff;
-    // constrain output and update limit flags
-    if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
-        pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
-        _flags_heli.limit_pitch = true;
-    } else {
-        _flags_heli.limit_pitch = false;
-    }
-    // output to motors
-    _motors.set_pitch(pitch_out); 
-
-    /*} else{
-
-    if (_flags_heli.leaky_i) {
-        _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
-    }
-    float roll_pid = _pid_rate_roll.update_all( _ang_vel_body.x, rate_rads.x, _dt, _motors.limit.roll) + _actuator_sysid.x;
-    float roll_ff = _pid_rate_roll.get_ff();
-    float roll_out = roll_pid + roll_ff;
-    if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
-        roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
-        _flags_heli.limit_roll = true;
-    } else {
-        _flags_heli.limit_roll = false;
-    }    _motors.set_roll(roll_out);
     // output for pitch (ppid)
     if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
@@ -578,15 +553,13 @@ if (_flags_heli.leaky_i) {
     if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_pitch = true;
-    } else {
+    }else{
         _flags_heli.limit_pitch = false;
     }
     // output to motors
-    _motors.set_pitch(pitch_out);
+    _motors.set_pitch(pitch_out); 
+    } 
 
-    k = k+1;
-    } */
-}
 }
 // Update Alt_Hold angle maximum
 void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
@@ -645,10 +618,7 @@ if (_flags_heli.leaky_i) {
         _flags_heli.limit_pitch = false;
     }
     // output to motors
-    _motors.set_pitch(pitch_out);
-
-    k = k+1;
-    
+    _motors.set_pitch(pitch_out);    
     
     // Piro-Comp, or Pirouette Compensation is a pre-compensation calculation, which basically rotates the Roll and Pitch Rate I-terms as the
     // helicopter rotates in yaw.  Much of the built-up I-term is needed to tip the disk into the incoming wind.  Fast yawing can create an instability
