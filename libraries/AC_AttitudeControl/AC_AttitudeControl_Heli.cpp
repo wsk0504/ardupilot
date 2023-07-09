@@ -289,11 +289,11 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("PIRO_COMP",    5, AC_AttitudeControl_Heli, _piro_comp_enabled, 0),
     
-    AP_GROUPINFO("K_P_1",    6, AC_AttitudeControl_Heli, _K_p_1, -0.001),
-    AP_GROUPINFO("K_P_2",    7, AC_AttitudeControl_Heli, _K_p_2,-0.001),
-    AP_GROUPINFO("DOB_K_1",    8, AC_AttitudeControl_Heli, _K_1, 0.001),
-    AP_GROUPINFO("DOB_K_2",    9, AC_AttitudeControl_Heli, _K_2, 0.001),
-    AP_GROUPINFO("PID_OR_DELAY",    10, AC_AttitudeControl_Heli, _P_D, 0),
+    AP_GROUPINFO("TIMEDELAY_K_P_1",    6, AC_AttitudeControl_Heli, _TIMEDELAY_K_P_1, -1.000),
+    AP_GROUPINFO("TIMEDELAY_K_P_2",    7, AC_AttitudeControl_Heli, _TIMEDELAY_K_P_2,-0.100),
+    AP_GROUPINFO("TIMEDELAY_DOB_K_1",    8, AC_AttitudeControl_Heli, _TIMEDELAY_K_1, 0.007),
+    AP_GROUPINFO("TIMEDELAY_DOB_K_2",    9, AC_AttitudeControl_Heli, _TIMEDELAY_K_2, 0.007),
+    AP_GROUPINFO("TIMEDELAY_ON_OFF",    10, AC_AttitudeControl_Heli, _TIMEDELAY_ON_OFF, 0),
 
     AP_GROUPEND
 };
@@ -403,7 +403,7 @@ void AC_AttitudeControl_Heli::rate_controller_run()
         _motors.set_roll(_passthrough_roll / 4500.0f);
         _motors.set_pitch(_passthrough_pitch / 4500.0f);
     } else {
-         if (_P_D == 0){ // time delay off
+         if (_TIMEDELAY_ON_OFF == 0){ // time delay off
         rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // state rate, target roll rate, target pitch rate
         }else{ // time delay on
             exp_pbc_time_delay_system_roll(gyro_latest, _euler_rate_target.x, _ang_vel_body.y); // state rate, target roll, target pitch rate  
@@ -485,12 +485,12 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     Vector3f x_d (x_d1, x_d2, 0);
 
     Vector3f e_chi = x_p3_k - x_d;
-    Vector3f K_p (_K_p_1, _K_p_2, 0);
+    Vector3f K_p (_TIMEDELAY_K_P_1, _TIMEDELAY_K_P_2, 0);
     float u_k = K_p * e_chi - d_k_h;
 
     u_k_delayed = Input[k-1];
 
-    Vector3f K (_K_1, _K_2, 0);
+    Vector3f K (_TIMEDELAY_K_1, _TIMEDELAY_K_2, 0);
     z_k_1 = z_k + K*((A-eye)*x_k + B*(u_k_delayed+d_est));
     d_est = K*x_k - z_k;
 

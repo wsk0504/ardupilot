@@ -107,8 +107,6 @@ public:
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
 
-
-
 private:
 
     // To-Do: move these limits flags into the heli motors class
@@ -161,9 +159,9 @@ private:
     AC_HELI_PID     _pid_rate_pitch;
     AC_HELI_PID     _pid_rate_yaw;
     // JH 6/21/23 Exp_PDC_time_delay system parameter
-    AP_Float _K_p_1;
-    AP_Float  _K_p_2;
-    AP_Float _K_1;
-    AP_Float _K_2;
-    AP_Int8 _P_D;
+    AP_Float _TIMEDELAY_K_P_1;
+    AP_Float  _TIMEDELAY_K_P_2;
+    AP_Float _TIMEDELAY_K_1;
+    AP_Float _TIMEDELAY_K_2;
+    AP_Int8 _TIMEDELAY_ON_OFF;
 };
