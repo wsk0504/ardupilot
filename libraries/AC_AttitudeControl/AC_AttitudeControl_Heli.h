@@ -106,6 +106,9 @@ public:
     }
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
+    void initABCp();
+    AP_Float _TD_OMG;
+    AP_Int8 _TD_Q;
 
 private:
 
@@ -159,9 +162,10 @@ private:
     AC_HELI_PID     _pid_rate_pitch;
     AC_HELI_PID     _pid_rate_yaw;
     // JH 6/21/23 Exp_PDC_time_delay system parameter
-    AP_Float _TIMEDELAY_K_P_1;
-    AP_Float  _TIMEDELAY_K_P_2;
-    AP_Float _TIMEDELAY_K_1;
-    AP_Float _TIMEDELAY_K_2;
-    AP_Int8 _TIMEDELAY_ON_OFF;
+    AP_Float _TD_K_P_1;
+    AP_Float  _TD_K_P_2;
+    AP_Float _TD_L_1;
+    AP_Float _TD_L_2;
+    AP_Int8 _TD_ON_OFF;
+
 };
