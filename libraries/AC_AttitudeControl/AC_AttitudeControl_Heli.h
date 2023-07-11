@@ -106,9 +106,11 @@ public:
     }
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
-    void initABCp();
     AP_Float _TD_OMG;
     AP_Int8 _TD_Q;
+    AP_Float _TD_H;
+    void initABCp();
+
 
 private:
 
