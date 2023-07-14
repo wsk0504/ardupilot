@@ -174,3 +174,150 @@ public:
 private:
     T _v[N];
 };
+
+template <typename T>
+class VectorN<T,2> {
+public:
+    VectorN() {
+        for (uint8_t i = 0; i < 2; i++) {
+                v[i] = 0;
+    }
+    }
+    VectorN(T x_, T y_) {
+        v[0] = x_;
+        v[1] = y_;
+    }
+    T operator *(const VectorN<T, 2>& other) const {
+        T result = 0;
+        for (uint8_t i = 0; i < 2; i++) {
+            result += v[i] * other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+    VectorN<T, 2>& operator +=(const VectorN<T, 2>& other) {
+        for (uint8_t i = 0; i < 2; i++) {
+            v[i] += other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return *this;
+    }
+    VectorN<T, 2> operator +(const VectorN<T, 2>& other) const {
+        VectorN<T, 2> result;
+        for (uint8_t i = 0; i < 2; i++) {
+            result.v[i] = v[i] + other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+        // negation
+    VectorN<T,2> operator -(void) const {
+        VectorN<T,2> v2;
+        for (uint8_t i=0; i<2; i++) {
+            v2[i] = - v[i];
+        }
+        return v2;
+    }
+    VectorN<T, 2> operator -(const VectorN<T, 2>& other) const {
+        VectorN<T, 2> result;
+        for (uint8_t i = 0; i < 2; i++) {
+            result.v[i] = v[i] - other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+    VectorN<T,2> operator *(const T num) const {
+        VectorN<T,2> v2;
+        for (uint8_t i=0; i<2; i++) {
+            v2[i] = v[i] * num;
+        }
+        return v2;
+    }
+    T & operator[](uint8_t i) {
+#if MATH_CHECK_INDEXES
+        assert(i >= 0 && i < 2);
+#endif
+        return v[i];
+    }
+
+    const T & operator[](uint8_t i) const {
+#if MATH_CHECK_INDEXES
+        assert(i >= 0 && i < 2);
+#endif
+        return v[i];
+    }
+
+private:
+    T v[2];
+
+};
+
+template <typename T>
+class VectorN<T,3> {
+public:
+    VectorN() {
+        for (uint8_t i = 0; i < 3; i++) {
+                v[i] = 0;
+    }
+    }
+    VectorN(T x_, T y_, T z_) {
+        v[0] = x_;
+        v[1] = y_;
+        v[2] = z_;
+    }
+    T operator *(const VectorN<T, 3>& other) const {
+        T result = 0;
+        for (uint8_t i = 0; i < 3; i++) {
+            result += v[i] * other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+VectorN<T, 3> operator *(const T scalar) const {
+    VectorN<T, 3> result;
+    for (uint8_t i = 0; i < 3; i++) {
+        result[i] = v[i] * scalar;  // assuming result[i] is used to set the i-th element of the vector
+    }
+    return result;
+}
+    VectorN<T, 3>& operator +=(const VectorN<T, 3>& other) {
+        for (uint8_t i = 0; i < 3; i++) {
+            v[i] += other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return *this;
+    }
+    VectorN<T, 3> operator +(const VectorN<T, 3>& other) const {
+        VectorN<T, 3> result;
+        for (uint8_t i = 0; i < 3; i++) {
+            result.v[i] = v[i] + other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+        // negation
+    VectorN<T,3> operator -(void) const {
+        VectorN<T,3> v2;
+        for (uint8_t i=0; i<3; i++) {
+            v2[i] = - v[i];
+        }
+        return v2;
+    }
+    VectorN<T, 3> operator -(const VectorN<T, 3>& other) const {
+        VectorN<T, 3> result;
+        for (uint8_t i = 0; i < 3; i++) {
+            result.v[i] = v[i] - other.v[i];  // assuming v[i] is used to access the i-th element of the vector
+        }
+        return result;
+    }
+
+    T & operator[](uint8_t i) {
+#if MATH_CHECK_INDEXES
+        assert(i >= 0 && i < 3);
+#endif
+        return v[i];
+    }
+
+    const T & operator[](uint8_t i) const {
+#if MATH_CHECK_INDEXES
+        assert(i >= 0 && i < 3);
+#endif
+        return v[i];
+    }
+
+private:
+    T v[3];
+};

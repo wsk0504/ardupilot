@@ -54,6 +54,7 @@ void MatrixN<T,N>::force_symmetry(void)
     }
 }
 
+
 template void MatrixN<float,4>::mult(const VectorN<float,4> &A, const VectorN<float,4> &B);
 template MatrixN<float,4> &MatrixN<float,4>::operator -=(const MatrixN<float,4> &B);
 template MatrixN<float,4> &MatrixN<float,4>::operator +=(const MatrixN<float,4> &B);

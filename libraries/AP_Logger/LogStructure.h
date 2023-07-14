@@ -701,6 +701,15 @@ struct PACKED log_VER {
     uint16_t _APJ_BOARD_ID;
 };
 
+//JH 071323 log for x_p3_k and x_k
+struct PACKED log_X {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    float x_1;
+    float x_2;
+    float x_p3_1;
+		float x_p3_2;
+};
 
 // FMT messages define all message formats other than FMT
 // UNIT messages define units which can be referenced by FMTU messages
@@ -1323,6 +1332,7 @@ LOG_STRUCTURE_FROM_VISUALODOM \
       "PSCE", "Qffffffff", "TimeUS,TPE,PE,DVE,TVE,VE,DAE,TAE,AE", "smmnnnooo", "F00000000" }, \
     { LOG_PSCD_MSG, sizeof(log_PSCD), \
       "PSCD", "Qffffffff", "TimeUS,TPD,PD,DVD,TVD,VD,DAD,TAD,AD", "smmnnnooo", "F00000000" }, \
+    { LOG_X_MSG, sizeof(log_X), "X", "Qffff", "TimeUS,X1,X2,XP3K1,XP3K2", "sdddd", "F0000" }, \
     { LOG_STAK_MSG, sizeof(log_STAK), \
       "STAK", "QBBHHN", "TimeUS,Id,Pri,Total,Free,Name", "s#----", "F-----", true }, \
     { LOG_FILE_MSG, sizeof(log_File), \
@@ -1419,7 +1429,7 @@ enum LogMessages : uint8_t {
     LOG_RCOUT2_MSG,
     LOG_RCOUT3_MSG,
     LOG_IDS_FROM_FENCE,
-
+    LOG_X_MSG = 205U,
     _LOG_LAST_MSG_
 };
 

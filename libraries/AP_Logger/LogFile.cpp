@@ -560,3 +560,16 @@ void AP_Logger::Write_PSCD(float pos_target, float pos, float vel_desired, float
     };
     WriteBlock(&pkt, sizeof(pkt));
 }
+
+void AP_Logger::Write_X(float x_1, float x_2, float x_p3_1,	float x_p3_2)
+{
+    const struct log_X pkt{
+        LOG_PACKET_HEADER_INIT(LOG_X_MSG), //message ID 
+            time_us : AP_HAL::micros64(), // timestamp
+            x_1  : x_1 * 57.3f, //value 1
+            x_2  : x_2 * 57.3f, //value 2
+            x_p3_1  : x_p3_1 * 57.3f, //value 3
+            x_p3_2  : x_p3_2 * 57.3f, //value 4
+    };
+    WriteBlock(&pkt, sizeof(pkt));
+}
