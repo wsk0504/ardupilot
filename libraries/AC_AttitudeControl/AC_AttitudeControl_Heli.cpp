@@ -539,7 +539,6 @@ float Cp_Xi(int i, float dt_, int h_, VectorN<float,3> delta_Xi_k_, float d_est_
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
 {   
-    AP::logger().Write_X(x_1,x_2,x_p3_k[0],x_p3_k[1]);
     h = _TD_H/dt;
     // REFERENCE TRAJECTORY
     float x_d1 = roll_target_rads;
@@ -567,6 +566,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         Xp2 = x_k + (Xp1 - Xp1_h);
         e_chi = Xp2 - x_d;
     }
+    AP::logger().Write_X(x_1,x_2,x_p3_k[0],x_p3_k[1],d_est,d_k_h);
 
     // CONTROLLER INPUT
     //float K_array [2] = {_TD_K_1, _TD_K_2};
@@ -579,7 +579,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     //float L_array [2] = {_TD_L_1, _TD_L_2};
     VectorN<float,2> L (_TD_L_1, _TD_L_2);
     z_k_1 = z_k + L*((A-eye2)*x_k + B*(u_k_delayed+d_est));
-    d_est = K*x_k - z_k;
+    d_est = L*x_k - z_k;
 
     // PREDICTOR FOR d(t+h)
     Xi_k_1 = Ap*Xi_k + Bp*d_est;
@@ -667,6 +667,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     } 
 
 }
+
+
 // Update Alt_Hold angle maximum
 void AC_AttitudeControl_Heli::update_althold_lean_angle_max(float throttle_in)
 {
