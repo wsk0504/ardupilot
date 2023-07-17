@@ -516,21 +516,17 @@ void AC_AttitudeControl_Heli::initABCp() {
 } 
 // nCr 
 unsigned long long nchoosek(int n, int m) {
-  unsigned long long result, result_1, result_2, result_3 ;
-  result_1 = result_2 = result_3 = 1;
-  for (int i = 1; i <= n; i++) {
+  unsigned long long result, result_1, result_2;
+  result_1 = result_2 = 1;
+  for (int i = n; i > n - m; i--) {
     result_1 *= i;
   }
   
-  for (int i = 1; i <= (n - m); i++) {
+  for (int i = 1; i <= m; i++) {
     result_2 *= i;
   }
   
-  for (int i = 1; i <= m; i++) {
-    result_3 *= i;
-  }
-  
-  result = result_1 / (result_2 * result_3);
+  result = result_1 / result_2;
   return result;
 }
 
