@@ -1,88 +1,79 @@
 #include "AC_AttitudeControl_Heli.h"
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
-#include <AP_Math/matrixN.h>
-#include <AP_Math/vectorN.h>
 #include <AP_Logger/AP_Logger.h>
 
 // GLOBAL VARIABLE
-int k = 1;
+const int16_t MAX_DELAY = 400; //maximum delay buffer (=hc/dt)
+
+int k = 1; //buffer
+uint8_t h = 0; 
+//uint8_t H = 120; //delay test
+
 float dt = 0.0025f;
-MatrixN<float, 2> eye2 (1.0f, 0.0f,
-                    0.0f, 1.0f);
-MatrixN<float, 3> eye3 (1.0f, 0.0f, 0.0f,
-                0.0f, 1.0f, 0.0f,
-                0.0f, 0.0f, 1.0f);                    
-MatrixN<float, 2> A (1.0f, dt,
-                    0.0f, 1.0f);
-VectorN<float,2> B(0.0f, dt);
-
-/* Matrix3f A (1.0f, dt, 0.0f,
-            0.0f, 1.0f, 0.0f,
-            0.0f, 0.0f, 0.0f);
-Vector3f B (0.0f, dt, 0.0f); */
-const int16_t MAX_DELAY = 120;
-// predictor parameter
-/*  Matrix3f Ap (0.9625f, 0.0025f, 0.0f,
-            -0.1875f, 1.0f, 0.0025f,
-            -0.3125f, 0.0f, 1.0f);
-
-Vector3f Bp (0.0375f,
-            0.1875f,
-            0.3125f);
-Vector3f Cp  (200.0f, 49.75f, 3283.5f);  */
-//int r = 2;
-VectorN<float,3> c(0.0f, 0.0f, 0.0f);
-MatrixN<float,3> Ap1(0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f);
-MatrixN<float,3> Ap(0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f);; 
-VectorN<float,3> Bp(0.0f, 0.0f, 0.0f);
-VectorN<float,3> Cp(0.0f, 0.0f, 0.0f);
-float nchoosek(int n, int m);
-VectorN<float,2> Numerical_Integral1(float fn[MAX_DELAY], float dt_, MatrixN<float, 2>  A_, VectorN<float,2> B_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);
-float Cp_Xi(int i, float dt_, int h_, VectorN<float,3> delta_Xi_k_, float d_est_);
-
-void AC_AttitudeControl_Heli::initABCp() {
-    
-    for(int i=1; i<=3; i++)
-    {
-        c[i-1] = nchoosek(3,i)*pow(_TD_OMG, i);
-    } 
-
-    for(int i=1; i<=2; i++)
-    {
-        Ap1[i-1][0] = -c[i-1];
-        Ap1[i][i+1] = 1;
-    }
-
-    Ap1[2][0] = -c[2];
-    Ap = eye3 + Ap1 * dt;
-
-    for(int i = 0; i < 3; i++)
-    {
-        Bp[i] = dt * c[i];
-    }
-
-    for(int i=1; i<=3; i++)
-    {
-        Cp[i-1] = dt*nchoosek(_TD_H/dt,i);
-    }
-
-    Cp[0] = Cp[0] / dt;
-} 
-
+float x_d1 = 0.0f;
 float x_1 = 0.0f;
 float x_2 = 0.0f;
-VectorN<float,2> x_k(0.0f, 0.0f);
-VectorN<float,2> x_d(0.0f, 0.0f);
-float u_k_delayed = 0.00f;
-float Input[MAX_DELAY] = {0}; //maximum 0.3sec delay
+float u_k = 0.0f;
+float u_k_delayed = 0.0f;
+float d_est = 0.0f;
+float z_k = 0.0f;
+float z_k_1 = 0.0f;
+float d_k_h = 0.0f;
+float Input[MAX_DELAY] = {0}; 
 float x_p3_[2][MAX_DELAY] = {0};
 float Xp_h_[2][MAX_DELAY] = {0};
 float Xp1_h_[2][MAX_DELAY] = {0};
+float y2 = 0.0f;
+
+/* 
+Matrix3f eye2 (1.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 0.0f);  
+Matrix3f eye3 (1.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 1.0f);                    
+Matrix3f A (1.0f, dt, 0.0f,
+            0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f);
+Vector3f B (0.0f, dt, 0.0f); 
+Vector3f x_k (0.0f, 0.0f, 0.0f);
+Vector3f x_d (0.0f, 0.0f, 0.0f);
+Vector3f x_p3_k (0.0f, 0.0f, 0.0f);
+Vector3f x_p_hat2 (0.0f, 0.0f, 0.0f);
+Vector3f Xp (0.0f, 0.0f, 0.0f);
+Vector3f Xp1 (0.0f, 0.0f, 0.0f);
+Vector3f Xp2 (0.0f, 0.0f, 0.0f);
+Vector3f Xp_h (0.0f, 0.0f, 0.0f);
+Vector3f Xp1_h (0.0f, 0.0f, 0.0f);
+Vector3f x_k_1 (0.0f, 0.0f, 0.0f);
+Vector3f e_chi (0.0f, 0.0f, 0.0f);
+Vector3f Xi_k (0.0f, 0.0f,0.0f);
+Vector3f Xi_k_1 (0.0f, 0.0f,0.0f);
+Vector3f delta_Xi_k (0.0f, 0.0f,0.0f); 
+Vector3f c(0.0f, 0.0f, 0.0f);
+Matrix3f Ap1(0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f);
+Matrix3f Ap(0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f); 
+Vector3f Bp(0.0f, 0.0f, 0.0f);
+Vector3f Cp(0.0f, 0.0f, 0.0f); 
+*/
+ 
+MatrixN<float,2> eye2 (1.0f, 0.0f,
+                        0.0f, 1.0f);
+MatrixN<float,3> eye3 (1.0f, 0.0f, 0.0f,
+                        0.0f, 1.0f, 0.0f,
+                        0.0f, 0.0f, 1.0f);
+MatrixN<float,2> A (1.0f, dt,
+                    0.0f, 1.0f);
+VectorN<float,2> B (0.0f, dt); 
+VectorN<float,2> K (0.0f, 0.0f);
+VectorN<float,2> L (0.0f, 0.0f);
+VectorN<float,2> x_k (0.0f, 0.0f);
+VectorN<float,2> x_d (0.0f, 0.0f);
 VectorN<float,2> x_p3_k (0.0f, 0.0f);
 VectorN<float,2> x_p_hat2 (0.0f, 0.0f);
 VectorN<float,2> Xp (0.0f, 0.0f);
@@ -92,19 +83,26 @@ VectorN<float,2> Xp_h (0.0f, 0.0f);
 VectorN<float,2> Xp1_h (0.0f, 0.0f);
 VectorN<float,2> x_k_1 (0.0f, 0.0f);
 VectorN<float,2> e_chi (0.0f, 0.0f);
-float d_est = 0.0f;
-float z_k = 0.0f;
-float z_k_1 = 0.0f;
-
-int h = 0;
-
-float d_k_h = 0.0f;
 VectorN<float,3> Xi_k (0.0f, 0.0f,0.0f);
 VectorN<float,3> Xi_k_1 (0.0f, 0.0f,0.0f);
 VectorN<float,3> delta_Xi_k (0.0f, 0.0f,0.0f); 
+VectorN<float,3> c (0.0f, 0.0f, 0.0f);
+MatrixN<float,3> Ap1 (0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f);
+MatrixN<float,3> Ap (0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f);
+VectorN<float,3> Bp (0.0f, 0.0f, 0.0f);
+VectorN<float,3> Cp (0.0f, 0.0f, 0.0f); 
 
 Quaternion attitude_quat;
 
+unsigned long long nchoosek(int n, int m);
+//Vector3f Numerical_Integral1(float fn[MAX_DELAY], float dt_, Matrix3f  A_, Vector3f B_, Vector3f delta_Xi_k_, float d_est_, int h_);
+//float Cp_Xi(int i, float dt_, int h_, Vector3f delta_Xi_k_, float d_est_);
+VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);
+float Cp_Xi(int i, float dt_, int h_, VectorN<float,3> delta_Xi_k_, float d_est_);
 
 // table of user settable parameters
 const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
@@ -357,8 +355,7 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     AP_GROUPINFO("TD_OMG",    11, AC_AttitudeControl_Heli, _TD_OMG, 0.0),
     AP_GROUPINFO("TD_Q",    12, AC_AttitudeControl_Heli, _TD_Q, 0),
     AP_GROUPINFO("TD_H",    13, AC_AttitudeControl_Heli, _TD_H, 0.05),
-
-
+    AP_GROUPINFO("TD_TEST",    14, AC_AttitudeControl_Heli, _TD_TEST, 0),
 
     AP_GROUPEND
 };
@@ -487,51 +484,95 @@ void AC_AttitudeControl_Heli::rate_controller_run()
 
 }
 
+void AC_AttitudeControl_Heli::initABCp() {
+
+    for(int i=1; i<=3; i++)
+    {
+        c[i-1] = nchoosek(3,i)*pow(_TD_OMG, i);
+    } 
+
+    for(int i=1; i<=2; i++)
+    {
+        Ap1[i-1][0] = -c[i-1];
+        Ap1[i-1][i] = 1.0f;
+    }
+
+    Ap1[2][0] = -c[2];
+    Ap = eye3 + Ap1 * dt;
+
+    for(int i = 0; i < 3; i++)
+    {
+        Bp[i] = dt * c[i];
+    }
+
+    for(int i=1; i<=3; i++)
+    {
+        Cp[i-1] = dt*nchoosek(_TD_H/dt,i);
+        //Cp[i-1] = dt*nchoosek(H,i); //delay test
+
+    }
+
+    Cp[0] = Cp[0] / dt;
+} 
 // nCr 
-float nchoosek(int n, int m) {
-    if(n == m || m == 0) 
-        return 1; 
-    else 
-        return nchoosek(n - 1, m - 1) + nchoosek(n - 1, m);
+unsigned long long nchoosek(int n, int m) {
+  unsigned long long result, result_1, result_2, result_3 ;
+  result_1 = result_2 = result_3 = 1;
+  for (int i = 1; i <= n; i++) {
+    result_1 *= i;
+  }
+  
+  for (int i = 1; i <= (n - m); i++) {
+    result_2 *= i;
+  }
+  
+  for (int i = 1; i <= m; i++) {
+    result_3 *= i;
+  }
+  
+  result = result_1 / (result_2 * result_3);
+  return result;
 }
-VectorN<float,2> Numerical_Integral1(float fn[MAX_DELAY], float dt_, MatrixN<float, 2>  A_, VectorN<float,2> B_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_){
-    //int h_ = k2 - k1;
+
+//Vector3f Numerical_Integral1(float fn[MAX_DELAY], float dt_, Matrix3f  A_, Vector3f B_, Vector3f delta_Xi_k_, float d_est_, int h_){
+VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_){
+    //Vector3f y (0.0f, 0.0f, 0.0f);
     VectorN<float,2> y (0.0f, 0.0f);
-    //if (h_ > 1){
-        //for(int i = 1; i <= h_; i++) {
-        for(int i = 1; i <= h_; i++) {    
-            //y += A_.power(h_ - i) * B_ * (fn[H_D - h_ + i -1]+ Cp_Xi(i, dt_, h_, R, delta_Xi_k_, d_est_));
-            y += A_.power(h_ - i) * B_ * (fn[i -1]+ Cp_Xi(i, dt_, h_, delta_Xi_k_, d_est_));
-        }
-    //}
+    
+    for(int i = 1; i <= h_; i++) {    
+        y +=  A_.power(h_ - i) * B_ * (fn[i -1]+ Cp_Xi(i-1, dt_, h_, delta_Xi_k_, d_est_));
+    }
+
     return y;
 }
 
+//float Cp_Xi(int i, float dt_, int h_, Vector3f delta_Xi_k_, float d_est_){
 float Cp_Xi(int i, float dt_, int h_, VectorN<float,3> delta_Xi_k_, float d_est_){
-    float y2 = 0.0f;
+    //Vector3f Cp_ (1.0f, 1.0f,1.0f);
+    VectorN<float,3> Cp_ (1.0f, 1.0f, 1.0f);
+
     if (i <= 2){
-        VectorN<float,3> Cp_ (0.0f, 0.0f,0.0f);
         for (int j=2;j<=i+1;j++){
             Cp_[j-1] = dt_*nchoosek(i,j-1);
         }
-        Cp_[0] = 1/dt_;
+        Cp_[0] = 1.0f/dt_;
         for(int j = 0; j <= i; j++)
         {
-            y2 += Cp_[j] * delta_Xi_k_[j];
+            y2 = Cp_[j] * delta_Xi_k_[j];
         }
         y2 += d_est_;
     }else{
-        VectorN<float,3> Cp_ (0.0f, 0.0f,0.0f);
         for (int j=2;j<=3;j++){
             Cp_[j-1] = dt_*nchoosek(i,j-1);
         }
-        Cp_[0] = 1/dt_;
+        Cp_[0] = 1.0f/dt_;
         for(int j = 0; j < 3; j++)
         {
-            y2 += Cp_[j] * delta_Xi_k_[j];
+            y2 = Cp_[j] * delta_Xi_k_[j];
         }
         y2 += d_est_;
     }
+
     return y2;    
 }
 
@@ -539,45 +580,49 @@ float Cp_Xi(int i, float dt_, int h_, VectorN<float,3> delta_Xi_k_, float d_est_
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
 {   
+    // Logger
+    if (_TD_TEST == 1){
+    AP::logger().Write_X(x_1,x_2,x_p3_k[0],x_p3_k[1],d_est,d_k_h);
+    }
+
+    // BUFFER
     h = _TD_H/dt;
+    //h = H;// delay test
     // REFERENCE TRAJECTORY
-    float x_d1 = roll_target_rads;
-    //float x_d1 = 5.0f;// for debug
-    float x_d2 = 0.0f;
-    //x_d = VectorN<float,2>(x_d1, x_d2);
-    x_d = {x_d1, x_d2};
+    x_d1 = roll_target_rads;
+    // float x_d2 = 0.0f;
+    //x_d = Vector3f(x_d1, 0.0f ,0.0f);
+    x_d = {x_d1, 0.0f};
 
     // DEFINE ERROR
     if (_TD_Q == 0){
         e_chi = x_p3_k - x_d;
     }
-    if (_TD_Q == 1){
+    else if (_TD_Q == 1){
         Xp = x_k + (x_p3_k - x_p_hat2);
         e_chi = Xp - x_d;
     }
-    if (_TD_Q == 2){
+    else if (_TD_Q == 2){
         Xp = x_k + (x_p3_k - x_p_hat2);
         Xp1 = x_k + (Xp - Xp_h);
         e_chi = Xp1 - x_d;
     }
-    if (_TD_Q == 3){
+    else if (_TD_Q == 3){
         Xp = x_k + (x_p3_k - x_p_hat2);
         Xp1 = x_k + (Xp - Xp_h);
         Xp2 = x_k + (Xp1 - Xp1_h);
         e_chi = Xp2 - x_d;
     }
-    AP::logger().Write_X(x_1,x_2,x_p3_k[0],x_p3_k[1],d_est,d_k_h);
 
     // CONTROLLER INPUT
-    //float K_array [2] = {_TD_K_1, _TD_K_2};
-    VectorN<float,2> K (_TD_K_1, _TD_K_2);
-    float u_k = - K * e_chi - d_k_h;
-
+    //Vector3f K (_TD_K_1, _TD_K_2, 0);
+    K = {_TD_K_1, _TD_K_2};
+    u_k = - K * e_chi - d_k_h;
     u_k_delayed = Input[k-1];
 
     // DOB
-    //float L_array [2] = {_TD_L_1, _TD_L_2};
-    VectorN<float,2> L (_TD_L_1, _TD_L_2);
+    //Vector3f L (_TD_L_1, _TD_L_2,0);
+    L = {_TD_L_1, _TD_L_2};
     z_k_1 = z_k + L*((A-eye2)*x_k + B*(u_k_delayed+d_est));
     d_est = L*x_k - z_k;
 
@@ -586,8 +631,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     delta_Xi_k = Xi_k_1-Xi_k; // modified
     //delta_Xi_k = Vector3f(Xi_k_1[1] - Xi_k[1], Xi_k_1[2] - Xi_k[2], Xi_k_1[3] - Xi_k[3]);
     d_k_h = Cp*delta_Xi_k + d_est;
-    //r = 0 test 
-    //d_k_h = d_est;
+    
     // CONSTRAINTED OUTPUT TO MOTOR
     float roll_out = u_k_delayed;
     if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
@@ -598,53 +642,69 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     }
     _motors.set_roll(roll_out); 
 
+    // STATE PREDICTION
+    x_p3_k = A.power(h)*x_k + Numerical_Integral1(Input,dt,A,B,delta_Xi_k,d_est,h);
+    
+    //_TD_Q == 0-> do nothing
+    if (_TD_Q == 1){ 
+    x_p_hat2[0] = x_p3_[0][k-1];
+    x_p_hat2[1] = x_p3_[1][k-1];
+
+    //Next step
+    x_p3_[0][k-1] = x_p3_k[0];
+    x_p3_[1][k-1] = x_p3_k[1];
+    }
+
+    else if (_TD_Q == 2){
+    x_p_hat2[0] = x_p3_[0][k-1];
+    x_p_hat2[1] = x_p3_[1][k-1];
+
+    Xp_h[0] = Xp_h_[0][k-1];
+    Xp_h[1] = Xp_h_[1][k-1];
+
+    //Next step
+    x_p3_[0][k-1] = x_p3_k[0];
+    x_p3_[1][k-1] = x_p3_k[1];
+
+    Xp_h_[0][k-1] = Xp[0];
+    Xp_h_[1][k-1] = Xp[1];
+    }
+
+    else if (_TD_Q == 3){
+    x_p_hat2[0] = x_p3_[0][k-1];
+    x_p_hat2[1] = x_p3_[1][k-1];
+
+    Xp_h[0] = Xp_h_[0][k-1];
+    Xp_h[1] = Xp_h_[1][k-1];
+
+    Xp1_h[0] = Xp1_h_[0][k-1];
+    Xp1_h[1] = Xp1_h_[1][k-1];
+
+    //Next step
+    x_p3_[0][k-1] = x_p3_k[0];
+    x_p3_[1][k-1] = x_p3_k[1];
+
+    Xp_h_[0][k-1] = Xp[0];
+    Xp_h_[1][k-1] = Xp[1];
+
+    Xp1_h_[0][k-1] = Xp1[0];
+    Xp1_h_[1][k-1] = Xp1[1];
+    }
+
     // CURRENT STATE
     AP::ahrs().get_quat_body_to_ned(attitude_quat);
     x_1 = attitude_quat.get_euler_roll();
     x_2 = rate_rads.x;
-    //x_k = VectorN<float,2> (x_1,x_2); 
-    x_k = {x_1,x_2};
-    //for debug!
-/*     float d = 3*sin(2*3.142*k/2000)*k;
-    x_k_1 = A*x_k + B*u_k_delayed + B*d;
-   _motors.set_roll(0.1);
-   _motors.set_pitch(0.1);*/ 
+    //x_k_1= Vector3f(x_1,x_2,0.0f);
+    x_k_1 = {x_1,x_2}; 
 
-
-    // STATE PREDICTION
-    //if (k < H_D){ //k는 0부터 H_D사이에만 움직임.
-        //x_p3_k = A.power(H_D)*x_k + Numerical_Integral1(2,1,k,Input,dt,A,B,delta_Xi_k,d_est,r); 
-        //for debug
-        //x_p3_k = A.power(H_D)*x_k;
-    //}else{
-        x_p3_k = A.power(h)*x_k + Numerical_Integral1(Input,dt,A,B,delta_Xi_k,d_est,h);
-        //for debug
-        //x_p3_k = A.power(H_D)*x_k; 
-    //}
-    if (_TD_Q == 2){
-    x_p_hat2[0] = x_p3_[0][k-1];
-    x_p_hat2[1] = x_p3_[1][k-1];
-    }
-    if (_TD_Q == 3){
-    x_p_hat2[0] = x_p3_[0][k-1];
-    x_p_hat2[1] = x_p3_[1][k-1];
-    Xp_h[0] = Xp_h_[0][k-1];
-    Xp_h[1] = Xp_h_[1][k-1];
-    }
-    if (_TD_Q == 4){
-    x_p_hat2[0] = x_p3_[0][k-1];
-    x_p_hat2[1] = x_p3_[1][k-1];
-    Xp_h[0] = Xp_h_[0][k-1];
-    Xp_h[1] = Xp_h_[1][k-1];
-    Xp1_h[0] = Xp1_h_[0][k-1];
-    Xp1_h[1] = Xp1_h_[1][k-1];
-    }
     // FOR NEXT STEP
     Input[k-1] = u_k;
     x_k = x_k_1;
     z_k = z_k_1;
     Xi_k = Xi_k_1;
-    // NEXT K 
+    
+    // NEXT k index 
     k = (k % h)+1;
 
     // output for pitch (ppid)
@@ -706,7 +766,7 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
         h = _TD_H/dt;
         u_k_delayed = Input[k - 1];
         _motors.set_roll(u_k_delayed);  
-        float u_k = roll_out;
+        u_k = roll_out;
         Input[k-1] = u_k;
         k = (k % h)+1;
     }else{

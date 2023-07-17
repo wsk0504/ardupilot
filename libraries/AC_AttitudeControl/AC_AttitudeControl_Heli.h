@@ -106,11 +106,18 @@ public:
     }
     // user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
-    AP_Float _TD_OMG;
-    AP_Int8 _TD_Q;
-    AP_Float _TD_H;
+    // JH 6/21/23 Exp_PDC_time_delay system parameter
+    AP_Float _TD_K_1; //gain for kp
+    AP_Float  _TD_K_2; //gain for kd
+    AP_Float _TD_L_1; //gain for dob1
+    AP_Float _TD_L_2; //gain for dob2
+    AP_Int8 _TD_ON_OFF; //delay mode, 0: no delay with pid, 1: delay with prediction based control, 2: delay with pid 
+    AP_Float _TD_OMG; //omega0
+    AP_Int8 _TD_Q; //q
+    AP_Float _TD_H; //h=hc/dt
+    AP_Int8 _TD_TEST; //logging test, 0: no logging, 1: logging
     void initABCp();
-
+    //
 
 private:
 
@@ -133,7 +140,6 @@ private:
     void rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
     float rate_target_to_motor_yaw(float rate_yaw_actual_rads, float rate_yaw_rads);
     void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
-
     //
     // throttle methods
     //
@@ -163,11 +169,5 @@ private:
     AC_HELI_PID     _pid_rate_roll;
     AC_HELI_PID     _pid_rate_pitch;
     AC_HELI_PID     _pid_rate_yaw;
-    // JH 6/21/23 Exp_PDC_time_delay system parameter
-    AP_Float _TD_K_P_1;
-    AP_Float  _TD_K_P_2;
-    AP_Float _TD_L_1;
-    AP_Float _TD_L_2;
-    AP_Int8 _TD_ON_OFF;
 
 };
