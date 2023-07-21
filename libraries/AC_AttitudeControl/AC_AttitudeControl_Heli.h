@@ -112,11 +112,16 @@ public:
     AP_Float _TD_L_1; //gain for dob1
     AP_Float _TD_L_2; //gain for dob2
     AP_Int8 _TD_ON_OFF; //delay mode, 0: no delay with pid, 1: delay with prediction based control, 2: delay with pid 
-    AP_Float _TD_OMG; //omega0
+    AP_Float _TD_OMG; //omega0 : should reboot after changing
     AP_Int8 _TD_Q; //q
     AP_Float _TD_H; //h=hc/dt
-    AP_Int8 _TD_TEST; //logging test, 0: no logging, 1: logging
+    AP_Int8 _TD_TEST; //logging test, 0: no logging, 1: logging faster, 2 : logging slower
+    AP_Int8 _TD_R; //r : should reboot after changing
     void initABCp();
+    unsigned long long nchoosek(int n, int m);
+    VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);
+    float Cp_Xi(int i, float dt_, int h_,  VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_);
+
     //
 
 private:

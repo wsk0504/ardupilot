@@ -94,6 +94,15 @@ MatrixN<T, 2> operator -(const MatrixN<T, 2>& other) const {
     }
     return result;
 }
+MatrixN<T, 2> operator *(const T& scalar) const {
+    MatrixN<T, 2> result;
+    for (uint8_t i = 0; i < 2; i++) {
+        for (uint8_t j = 0; j < 2; j++) {
+            result[i][j] = v[i][j] * scalar; 
+        }
+    }
+    return result;
+}
 MatrixN<T,2> operator *(const MatrixN<T,2> &m) const {
     MatrixN<T,2> result;
     for (uint8_t i = 0; i < 2; i++) {
