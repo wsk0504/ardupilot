@@ -707,8 +707,9 @@ struct PACKED log_X {
     uint64_t time_us;
     float x_1;
     float x_2;
-    float x_p3_1;
-		float x_p3_2;
+    float x_d;
+    float x_p3_k1;
+		float x_p3_k2;
     float d_est;
     float d_k_h;
 
@@ -1335,7 +1336,7 @@ LOG_STRUCTURE_FROM_VISUALODOM \
       "PSCE", "Qffffffff", "TimeUS,TPE,PE,DVE,TVE,VE,DAE,TAE,AE", "smmnnnooo", "F00000000" }, \
     { LOG_PSCD_MSG, sizeof(log_PSCD), \
       "PSCD", "Qffffffff", "TimeUS,TPD,PD,DVD,TVD,VD,DAD,TAD,AD", "smmnnnooo", "F00000000" }, \
-    { LOG_X_MSG, sizeof(log_X), "X", "Qffffff", "TimeUS,X1,X2,XP3K1,XP3K2,D_EST,D_K_H", "sdddddd", "F000000" }, \
+    { LOG_X_MSG, sizeof(log_X), "X", "Qfffffff", "TimeUS,X1,X2,XD,XP3K1,XP3K2,D_EST,D_K_H", "sddddddd", "F0000000" }, \
     { LOG_STAK_MSG, sizeof(log_STAK), \
       "STAK", "QBBHHN", "TimeUS,Id,Pri,Total,Free,Name", "s#----", "F-----", true }, \
     { LOG_FILE_MSG, sizeof(log_File), \
