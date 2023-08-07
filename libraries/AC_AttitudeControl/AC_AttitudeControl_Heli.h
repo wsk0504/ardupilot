@@ -117,6 +117,10 @@ public:
     AP_Float _TD_H; //h=hc/dt
     AP_Int8 _TD_TEST; //logging test, 0: no logging, 1: logging faster, 2 : logging slower
     AP_Int8 _TD_R; //r : should reboot after changing
+    // for SITL
+    //AP_Float _TD_X;
+    //AP_Float _TD_X_DOT;
+
     void initABCp();
     unsigned long long nchoosek(int n, int m);
     VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);

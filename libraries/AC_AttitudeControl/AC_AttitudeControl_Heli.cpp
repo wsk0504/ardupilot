@@ -25,7 +25,10 @@ float x_p3_[2][MAX_DELAY] = {0};
 float Xp_h_[2][MAX_DELAY] = {0};
 float Xp1_h_[2][MAX_DELAY] = {0};
 float y2 = 0.0f;
- 
+AP_Int8 q_prev;
+AP_Int8 r_prev; 
+
+
 MatrixN<float,2> eye2 (1.0f, 0.0f,
                         0.0f, 1.0f);
 MatrixN<float,3> eye3 (1.0f, 0.0f, 0.0f,
@@ -80,6 +83,12 @@ float Bp_0 = 0.0f;
 float Cp_0 = 0.0f; */
 
 Quaternion attitude_quat;
+
+float sample_frequency = dt;
+float cutoff_frequency = 5.0f;
+//LowPassFilter<float> filter(sample_frequency, cutoff_frequency);
+LowPassFilter2p<float> filter2p(sample_frequency, cutoff_frequency);
+
 
 /* 
 Matrix3f eye2 (1.0f, 0.0f, 0.0f,
@@ -366,16 +375,81 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("PIRO_COMP",    5, AC_AttitudeControl_Heli, _piro_comp_enabled, 0),
     
+    // @Param: TD_K_1
+    // @DisplayName: Kp Gain
+    // @Description: Gain of Proportion
+    // @Range: 0 5
+    // @User: Advanced
     AP_GROUPINFO("TD_K_1",    6, AC_AttitudeControl_Heli, _TD_K_1, 0.5),
+
+    // @Param: TD_K_2
+    // @DisplayName: Kd Gain
+    // @Description: Gain of Derivative
+    // @Range: 0 1
+    // @User: Advanced
     AP_GROUPINFO("TD_K_2",    7, AC_AttitudeControl_Heli, _TD_K_2, 0.01),
+
+    // @Param: TD_L_1
+    // @DisplayName: L1 Gain
+    // @Description: Gain of Disturbance Observer 1
+    // @Range: 0 5
+    // @User: Advanced
     AP_GROUPINFO("TD_L_1",    8, AC_AttitudeControl_Heli, _TD_L_1, 0.0),
+
+    // @Param: TD_L_2
+    // @DisplayName: L2 Gain
+    // @Description: Gain of Disturbance Observer 2
+    // @Range: 0 5
+    // @User: Advanced
     AP_GROUPINFO("TD_L_2",    9, AC_AttitudeControl_Heli, _TD_L_2, 0.0),
+
+    // @Param: TD_ON_OFF
+    // @DisplayName: ON_OFF
+    // @Description: PID or Time Delay or Delayed PID Controller
+    // @Values: 0:NormalPID,1:PredictBased,2:DelayedPID
+    // @User: Advanced
     AP_GROUPINFO("TD_ON_OFF",    10, AC_AttitudeControl_Heli, _TD_ON_OFF, 0),
-    AP_GROUPINFO("TD_OMG_REBOOT",    11, AC_AttitudeControl_Heli, _TD_OMG, 0.0),
+
+    // @Param: TD_OMG
+    // @DisplayName: Omega Param
+    // @Description: Disturbance Prediction Param for Ap Bp and should be rebooted after changing this
+    // @Range: 0 5
+    // @User: Advanced
+    AP_GROUPINFO("TD_OMG",    11, AC_AttitudeControl_Heli, _TD_OMG, 0.0),
+
+    // @Param: TD_Q
+    // @DisplayName: Q Param
+    // @Description: State Prediction Param for xp3,xp,xp2
+    // @Range: 0 5
+    // @User: Advanced   
     AP_GROUPINFO("TD_Q",    12, AC_AttitudeControl_Heli, _TD_Q, 0),
-    AP_GROUPINFO("TD_H_DANGER",    13, AC_AttitudeControl_Heli, _TD_H, 0.05),
+    
+    // @Param: TD_H
+    // @DisplayName: H second delay
+    // @Description: H second delay
+    // @Range: 0 0.5
+    // @User: Advanced   
+    AP_GROUPINFO("TD_H",    13, AC_AttitudeControl_Heli, _TD_H, 0.05),
+
+    // @Param: TD_TEST
+    // @DisplayName: For logging test
+    // @Description: logging load for values 
+    // @Values: 0:NoLogging,1:LoggingFaster,2:LoggingSlower
+    // @User: Advanced
     AP_GROUPINFO("TD_TEST",    14, AC_AttitudeControl_Heli, _TD_TEST, 0),
-    AP_GROUPINFO("TD_R_REBOOT",    15, AC_AttitudeControl_Heli, _TD_R, 0),
+
+    // @Param: TD_R
+    // @DisplayName: R parameter 
+    // @Description: Disturbance Prediction for Ap Bp Cp c using delta and should be rebooted after changing this
+    // @Values: 0:NoPrediction,1:FirstOrder,2:SecondOrder
+    // @User: Advanced 
+    AP_GROUPINFO("TD_R",    15, AC_AttitudeControl_Heli, _TD_R, 0),
+
+
+    // for SITL
+    //AP_GROUPINFO("TD_X",    16, AC_AttitudeControl_Heli, _TD_X, 0),
+
+    //AP_GROUPINFO("TD_X_DOT",    17, AC_AttitudeControl_Heli, _TD_X_DOT, 0),
 
 
     AP_GROUPEND
@@ -656,15 +730,20 @@ float  AC_AttitudeControl_Heli::Cp_Xi(int i, float dt_, int h_, VectorN<float,2>
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float rate_pitch_target_rads)
 {   
+  
+    if(_TD_Q != q_prev || _TD_R != r_prev){
+        initABCp(); //for SITL
+    }
+    q_prev = _TD_Q;
+    r_prev = _TD_R;
     // Logger
-    if (_TD_TEST == 1 || _TD_TEST == 2){
-        if (_TD_TEST == 2){
+    if (_TD_TEST == 1){
+/*         if (_TD_TEST == 2){
             if(k == int((_TD_H/dt)/2) || k == 1){
             AP::logger().Write_X(x_1,x_2,x_d1,x_p3_k[0],x_p3_k[1],d_est,d_k_h);
             }
-        }else{
+        }else{ */
             AP::logger().Write_X(x_1,x_2,x_d1,x_p3_k[0],x_p3_k[1],d_est,d_k_h);
-        }
     }
 
     // BUFFER
@@ -676,6 +755,12 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // float x_d2 = 0.0f;
     //x_d = Vector3f(x_d1, 0.0f ,0.0f);
     x_d = {x_d1, 0.0f};
+
+    //LPF
+    //x_p3_k[0] = filter.apply(x_p3_k[0], dt);
+    //x_p3_k[1] = filter.apply(x_p3_k[1], dt);
+    //x_p3_k[0] = filter2p.apply(x_p3_k[0]);
+    //x_p3_k[1] = filter2p.apply(x_p3_k[1]);
 
     // DEFINE ERROR
     if (_TD_Q == 0){
@@ -791,12 +876,16 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     AP::ahrs().get_quat_body_to_ned(attitude_quat);
     x_1 = attitude_quat.get_euler_roll();
     x_2 = rate_rads.x;
+    //LPF
+    x_2 = filter2p.apply(x_2);
     //x_k_1= Vector3f(x_1,x_2,0.0f);
     x_k_1 = {x_1,x_2}; 
 
     // FOR NEXT STEP
     Input[k-1] = u_k;
     x_k = x_k_1;
+    //for sitl
+    //x_k = {_TD_X,_TD_X_DOT};
     z_k = z_k_1;
     Xi_k = Xi_k_1;
     
