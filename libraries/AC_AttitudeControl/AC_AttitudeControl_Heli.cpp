@@ -875,7 +875,9 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // CURRENT STATE
     AP::ahrs().get_quat_body_to_ned(attitude_quat);
     x_1 = attitude_quat.get_euler_roll();
-    x_2 = rate_rads.x;
+    //x_2 = rate_rads.x;
+    //euler rate
+    x_2 = rate_rads.x + tan(attitude_quat.get_euler_pitch())*(rate_rads.y*sin(x_1)+rate_rads.z*cos(x_1));
     //LPF
     x_2 = filter2p.apply(x_2);
     //x_k_1= Vector3f(x_1,x_2,0.0f);
