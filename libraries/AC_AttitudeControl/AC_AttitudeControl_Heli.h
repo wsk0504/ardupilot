@@ -7,6 +7,7 @@
 #include <AP_Motors/AP_MotorsHeli.h>
 #include <AC_PID/AC_HELI_PID.h>
 #include <Filter/Filter.h>
+#include <AP_Arming/AP_Arming.h>
 
 // default rate controller PID gains
 #define AC_ATC_HELI_RATE_RP_P                       0.024f
@@ -112,18 +113,27 @@ public:
     AP_Float _TD_L_1; //gain for dob1
     AP_Float _TD_L_2; //gain for dob2
     AP_Int8 _TD_ON_OFF; //delay mode, 0: no delay with pid, 1: delay with prediction based control, 2: delay with pid 
-    AP_Float _TD_OMG; //omega0 : should reboot after changing
+    AP_Float _TD_OMG; //omega0
     AP_Int8 _TD_Q; //q
-    AP_Float _TD_H; //h=hc/dt
+    AP_Float _TD_HD; //h=hc/dt
     AP_Int8 _TD_TEST; //logging test, 0: no logging, 1: logging faster, 2 : logging slower
-    AP_Int8 _TD_R; //r : should reboot after changing
+    AP_Int8 _TD_R; //r 
+    // FOR PITCH CONTROL
+    AP_Float _TD_K_1_P; //gain for kp
+    AP_Float  _TD_K_2_P; //gain for kd
+    AP_Float _TD_L_1_P; //gain for dob1
+    AP_Float _TD_L_2_P; //gain for dob2
+    AP_Float _TD_OMG_P; //omega0
+
     // for SITL
     //AP_Float _TD_X;
     //AP_Float _TD_X_DOT;
 
     void initABCp();
+    bool check_arm_status();
     unsigned long long nchoosek(int n, int m);
-    VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);
+    //VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_);
+    VectorN<float,2> Numerical_Integral1(float* fn, float dt_, MatrixN<float,2>  A_, VectorN<float,2> B_, VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_, int h_, bool use_AP);
     float Cp_Xi(int i, float dt_, int h_,  VectorN<float,2> delta_Xi_k_r1_, VectorN<float,3> delta_Xi_k_, float d_est_);
 
     //
@@ -148,11 +158,49 @@ private:
     // outputs are sent directly to motor class
     void rate_bf_to_motor_roll_pitch(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
     float rate_target_to_motor_yaw(float rate_yaw_actual_rads, float rate_yaw_rads);
-    void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float rate_roll_target_rads, float rate_pitch_target_rads);
+    void exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float pitch_target_rads);
     //
     // throttle methods
     //
-    
+    // power of matrix with cache
+/*     std::vector<MatrixN<float, 2>> matrix_power_list;
+    MatrixN<float, 2> cached_power(const MatrixN<float, 2>& matrix, int n) {
+        if (n >= matrix_power_list.size()) {
+            if(matrix_power_list.empty()) {
+                matrix_power_list.push_back(matrix); // n=1
+            }
+            for(int i = matrix_power_list.size(); i <= n; ++i) {
+                matrix_power_list.push_back(matrix_power_list.back() * matrix);
+            }
+        }
+        return matrix_power_list[n-1];
+    } */
+
+std::vector<MatrixN<float, 2>> matrix_power_list_A;
+std::vector<MatrixN<float, 2>> matrix_power_list_AP;
+
+MatrixN<float, 2> cached_power_A(const MatrixN<float, 2>& matrix, int n) {
+    while (n >= matrix_power_list_A.size()) {
+        if(matrix_power_list_A.empty()) {
+            matrix_power_list_A.push_back(matrix);
+        } else {
+            matrix_power_list_A.push_back(matrix_power_list_A.back() * matrix);
+        }
+    }
+    return matrix_power_list_A[n-1];
+}
+
+MatrixN<float, 2> cached_power_AP(const MatrixN<float, 2>& matrix, int n) {
+    while (n >= matrix_power_list_AP.size()) {
+        if(matrix_power_list_AP.empty()) {
+            matrix_power_list_AP.push_back(matrix);
+        } else {
+            matrix_power_list_AP.push_back(matrix_power_list_AP.back() * matrix);
+        }
+    }
+    return matrix_power_list_AP[n-1];
+}
+
     // pass through for roll and pitch
     float _passthrough_roll;
     float _passthrough_pitch;
