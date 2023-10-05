@@ -561,30 +561,24 @@ void AP_Logger::Write_PSCD(float pos_target, float pos, float vel_desired, float
     WriteBlock(&pkt, sizeof(pkt));
 }
 
-void AP_Logger::Write_X(float x_1, float x_2, float x_1_P, float x_2_P, float x_d, float x_d_P, float e_chi1, float e_chi2, float e_chi1_P, float e_chi2_P, float d_est, float d_k_h,float d_est_P, float d_k_h_P)
+void AP_Logger::Write_X(float x_2, float x_2_P, float e_chi1, float e_chi1_P, float d_k_h, float d_k_h_P, float u_k_delayed, float u_k_delayed_P, float _dt)
 {
     const struct log_X pkt{
         LOG_PACKET_HEADER_INIT(LOG_X_MSG), //message ID 
-            time_us : AP_HAL::micros64(), // timestamp
-            x_1  : x_1 * 57.296f, //value 1
-            x_2  : x_2 * 57.296f, //value 2
-            x_1_P  : x_1_P * 57.296f, //value 1
-            x_2_P  : x_2_P * 57.296f, //value 2
+            //time_us : AP_HAL::micros64(), // timestamp
+            x_2  : x_2, //value 2
+            x_2_P  : x_2_P, //value 2
 
-            x_d  : x_d * 57.296f, //value 2
-            x_d_P  : x_d_P * 57.296f, //value 2
+            e_chi1  : e_chi1, //value 3
+            e_chi1_P  : e_chi1_P, //value 3
 
-            e_chi1  : e_chi1 * 57.296f, //value 3
-            e_chi2  : e_chi2 * 57.296f, //value 4
-            e_chi1_P  : e_chi1_P * 57.296f, //value 3
-            e_chi2_P  : e_chi2_P * 57.296f, //value 4
+            d_k_h : d_k_h,
+            d_k_h_P : d_k_h_P,
 
-            d_est : d_est * 57.296f,
-            d_k_h : d_k_h * 57.296f,
-
-
-            d_est_P : d_est_P * 57.296f,
-            d_k_h_P : d_k_h_P * 57.296f
+            u_k_delayed : u_k_delayed,
+            u_k_delayed_P : u_k_delayed_P,
+            _dt : _dt
+    
 
     };
     WriteBlock(&pkt, sizeof(pkt));

@@ -625,7 +625,7 @@ void AC_AttitudeControl_Heli::rate_controller_run()
         _motors.set_roll(_passthrough_roll / 4500.0f);
         _motors.set_pitch(_passthrough_pitch / 4500.0f);
     } else {
-         if (_TD_ON_OFF == 0 || _TD_ON_OFF == 2){ // PPID
+         if (_TD_ON_OFF == 0 || _TD_ON_OFF == 2 || _TD_ON_OFF == 5){ // PPID
         rate_bf_to_motor_roll_pitch(gyro_latest, _ang_vel_body.x, _ang_vel_body.y); // state rate, target roll rate, target pitch rate
         }else{ // time delay on
             exp_pbc_time_delay_system_roll(gyro_latest, _euler_angle_target.x , _euler_angle_target.y); // state rate, target roll, target pitch rate  
@@ -875,7 +875,7 @@ bool AC_AttitudeControl_Heli::check_arm_status() {
 // Main
 void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rate_rads, float roll_target_rads, float pitch_target_rads)
 {   
-  
+
     if(_TD_Q != q_prev || _TD_R != r_prev){
         initABCp(); //for SITL
     }
@@ -884,12 +884,15 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // Logger
     if (_TD_TEST == 1){
         //if(k == int((_TD_H/dt)/2) || k == 1){
-            AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);
+            //AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);       
+            AP::logger().Write_X(x_2,x_2_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,u_k_delayed,u_k_delayed_P,_dt);       
+
         //}
     }
     if (_TD_TEST == 2){
         if(k == int((_TD_HD/dt)/2) || k == 1){
-            AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);
+            //AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);
+            AP::logger().Write_X(x_2,x_2_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,u_k_delayed,u_k_delayed_P,_dt);       
         }
     }
     // BUFFER
@@ -949,6 +952,13 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         e_chi_P = Xp2_P - x_d_P;
 
     }
+    
+    if(_TD_ON_OFF==3){ // roll delayed only- pitch no delay PD and DOB control
+        e_chi_P = x_k_P - x_d_P;
+    }    
+    if(_TD_ON_OFF==4){ // roll no delay PD and DOB control
+        e_chi = x_k - x_d;
+    }    
 
     // CONTROLLER INPUT
     //Vector3f K (_TD_K_1, _TD_K_2, 0);
@@ -960,6 +970,13 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
 
     u_k_delayed = Input[k-1];
     u_k_delayed_P = Input_P[k-1];
+
+    if(_TD_ON_OFF==3){ // roll delayed only- pitch no delay PD and DOB control
+        u_k_delayed_P = u_k_P;
+    }    
+    if(_TD_ON_OFF==4){ // roll no delay PD and DOB control
+        u_k_delayed = u_k;
+    }    
 
     // DOB
     //Vector3f L (_TD_L_1, _TD_L_2,0);
@@ -1005,6 +1022,13 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         d_k_h_P = Cp_P*delta_Xi_k_P + d_est_P;
     }
 
+    if(_TD_ON_OFF==3){ // roll delayed only- pitch no delay PD and DOB control
+        d_k_h_P = d_est_P;
+    }        
+    if(_TD_ON_OFF==4){ // roll no delay PD and DOB control
+        d_k_h = d_est;
+    }      
+
     //saturation
     if (fabsf(d_k_h) > 0.1f) {
         d_k_h = constrain_float(d_k_h,-0.1f,0.1f);
@@ -1016,7 +1040,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // CONSTRAINTED OUTPUT TO MOTOR
     float roll_out = u_k_delayed;
     float pitch_out = u_k_delayed_P;
-    if(_TD_ON_OFF!=4){ //only pitch control
+
+//     if(_TD_ON_OFF!=4){ //roll delayed only 
     if (fabsf(roll_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         roll_out = constrain_float(roll_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_roll = true;
@@ -1024,9 +1049,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         _flags_heli.limit_roll = false;
     }
     _motors.set_roll(roll_out); 
-    }
-    
-    if(_TD_ON_OFF!=3){ //only roll control
+//    }
+//    if(_TD_ON_OFF!=3){ //pitch delayed only
     if (fabsf(pitch_out) > AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX) {
         pitch_out = constrain_float(pitch_out, -AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX, AC_ATTITUDE_RATE_RP_CONTROLLER_OUT_MAX);
         _flags_heli.limit_pitch = true;
@@ -1034,8 +1058,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         _flags_heli.limit_pitch = false;
     }
     _motors.set_pitch(pitch_out); 
+//    } 
 
-    }
     // STATE PREDICTION
     //x_p3_k = A.power(h)*x_k + Numerical_Integral1(Input,dt,A,B,delta_Xi_k_r1,delta_Xi_k,d_est,h);
     //x_p3_k_P = A_P.power(h)*x_k_P + Numerical_Integral1(Input_P,dt,A_P,B_P,delta_Xi_k_r1_P,delta_Xi_k_P,d_est_P,h);
@@ -1161,9 +1185,11 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     // NEXT k index 
     k = (k % h)+1;
 
-     // output for pitch (ppid)
-    if(_TD_ON_OFF==3){ // only roll
-    if (_flags_heli.leaky_i) {
+    // output for pitch (ppid)
+/*     if(_TD_ON_OFF==3){ // roll delayed only- pitch PD and DOB control
+
+
+     if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     float pitch_pid = _pid_rate_pitch.update_all(_ang_vel_body.y, rate_rads.y, dt, _motors.limit.pitch) + _actuator_sysid.y;
     // use pid library to calculate ff
@@ -1179,11 +1205,14 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     }
     // output to motors
     _motors.set_pitch(pitch_out); 
-    }  
+    }   
+    
     }
 
-    if(_TD_ON_OFF == 4){ // only pitch
-    if (_flags_heli.leaky_i) {
+    if(_TD_ON_OFF == 4){ // pitch delayed only - roll PD and DOB control
+
+
+     if (_flags_heli.leaky_i) {
         _pid_rate_roll.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     float roll_pid = _pid_rate_roll.update_all(_ang_vel_body.x, rate_rads.x, dt, _motors.limit.roll) + _actuator_sysid.x;
     // use pid library to calculate ff
@@ -1199,8 +1228,9 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     }
     // output to motors
     _motors.set_roll(roll_out); 
-    }  
-    }
+    }   
+
+    } */
 }
 
 
@@ -1236,17 +1266,7 @@ void AC_AttitudeControl_Heli::rate_bf_to_motor_roll_pitch(const Vector3f &rate_r
     } else {
         _flags_heli.limit_roll = false;
     }    
-    // JH 07_12_23 for time delay pid test
-    if(_TD_ON_OFF==2){
-        h = _TD_HD/dt;
-        u_k_delayed = Input[k - 1];
-        _motors.set_roll(u_k_delayed);  
-        u_k = roll_out;
-        Input[k-1] = u_k;
-        k = (k % h)+1;
-    }else{
-        _motors.set_roll(roll_out);
-    }
+
 if (_flags_heli.leaky_i) {
         _pid_rate_pitch.update_leaky_i(AC_ATTITUDE_HELI_RATE_INTEGRATOR_LEAK_RATE);
     }
@@ -1262,9 +1282,34 @@ if (_flags_heli.leaky_i) {
     } else {
         _flags_heli.limit_pitch = false;
     }
-    // output to motors
-    _motors.set_pitch(pitch_out);    
-    
+
+    // JH 09_26_23 for time delay pid test
+    if(_TD_ON_OFF==2){
+        h = _TD_HD/dt;
+        u_k_delayed = Input[k - 1];
+        _motors.set_roll(u_k_delayed);  
+        u_k = roll_out;
+        Input[k-1] = u_k;
+        k = (k % h)+1;
+    }
+    else if(_TD_ON_OFF==5){
+        h = _TD_HD/dt;
+
+        u_k_delayed = Input[k - 1];
+        _motors.set_roll(u_k_delayed);  
+        u_k = roll_out;
+        Input[k-1] = u_k;
+
+        u_k_delayed_P = Input_P[k - 1];
+        _motors.set_pitch(u_k_delayed_P);  
+        u_k_P = pitch_out;
+        Input_P[k-1] = u_k_P;
+
+        k = (k % h)+1;
+    }else{
+        _motors.set_roll(roll_out);
+        _motors.set_pitch(pitch_out);
+    }    
     // Piro-Comp, or Pirouette Compensation is a pre-compensation calculation, which basically rotates the Roll and Pitch Rate I-terms as the
     // helicopter rotates in yaw.  Much of the built-up I-term is needed to tip the disk into the incoming wind.  Fast yawing can create an instability
     // as the built-up I-term in one axis must be reduced, while the other increases.  This helps solve that by rotating the I-terms before the error occurs.
