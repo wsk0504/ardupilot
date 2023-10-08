@@ -1291,6 +1291,8 @@ if (_flags_heli.leaky_i) {
         u_k = roll_out;
         Input[k-1] = u_k;
         k = (k % h)+1;
+        _motors.set_pitch(pitch_out);
+
     }
     else if(_TD_ON_OFF==5){
         h = _TD_HD/dt;
