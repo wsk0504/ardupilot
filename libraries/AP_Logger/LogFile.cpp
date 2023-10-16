@@ -565,7 +565,7 @@ void AP_Logger::Write_X(float x_2, float x_2_P, float e_chi1, float e_chi1_P, fl
 {
     const struct log_X pkt{
         LOG_PACKET_HEADER_INIT(LOG_X_MSG), //message ID 
-            //time_us : AP_HAL::micros64(), // timestamp
+            time_us : AP_HAL::micros64(), // timestamp
             x_2  : x_2, //value 2
             x_2_P  : x_2_P, //value 2
 
