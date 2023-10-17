@@ -510,6 +510,8 @@ const AP_Param::GroupInfo AC_AttitudeControl_Heli::var_info[] = {
     AP_GROUPINFO("TD_L_1_P",    18, AC_AttitudeControl_Heli, _TD_L_1_P, 0.0),
     AP_GROUPINFO("TD_L_2_P",    19, AC_AttitudeControl_Heli, _TD_L_2_P, 0.0),
     AP_GROUPINFO("TD_OMG_P",    20, AC_AttitudeControl_Heli, _TD_OMG_P, 0.0),
+    AP_GROUPINFO("TD_REF",    21, AC_AttitudeControl_Heli, _TD_REF, 0),
+    AP_GROUPINFO("TD_DEPC",    22, AC_AttitudeControl_Heli, _TD_DEPC, 0),
 
     // for SITL
     //AP_GROUPINFO("TD_X",    16, AC_AttitudeControl_Heli, _TD_X, 0),
@@ -885,27 +887,49 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     if (_TD_TEST == 1){
         //if(k == int((_TD_H/dt)/2) || k == 1){
             //AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);       
-            AP::logger().Write_X(x_2,x_2_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,u_k_delayed,u_k_delayed_P,_dt);       
+            AP::logger().Write_X(x_1,x_1_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,x_d1,x_d1_P,_dt);       
 
         //}
     }
-    if (_TD_TEST == 2){
+/*     if (_TD_TEST == 2){
         if(k == int((_TD_HD/dt)/2) || k == 1){
             //AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);
             AP::logger().Write_X(x_2,x_2_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,u_k_delayed,u_k_delayed_P,_dt);       
         }
-    }
+    } */
     // BUFFER
     h = _TD_HD/dt;
     //h = H;// delay test
     
     // REFERENCE TRAJECTORY
-    x_d1 = roll_target_rads;
-    x_d1_P = pitch_target_rads;
+    if(_TD_REF==0){ // normal
+        x_d1 = roll_target_rads;
+        x_d1_P = pitch_target_rads;
+    }else if(_TD_REF==1){ //step
+        x_d1 = 10*d2r; //10deg
+        x_d1_P = pitch_target_rads;
+    }else if(_TD_REF==2){ // sinusodial
+        x_d1 = 10*sin(2*pi*Sine_time/MAX_DELAY/30)*d2r;
+        x_d1_h = 10*sin(2*pi*(Sine_time+h)/MAX_DELAY/30)*d2r;
+        //x_d1_h1 = 10*sin(2*pi*(Sine_time+h+1)/MAX_DELAY/30)*d2r;
+
+        x_d1_P = 5*cos(2*pi*Sine_time/MAX_DELAY/20)*d2r;
+        x_d1_P_h = 5*cos(2*pi*(Sine_time+h)/MAX_DELAY/20)*d2r;
+        //x_d1_P_h1 = 5*cos(2*pi*(Sine_time+h+1)/MAX_DELAY/20)*d2r;
+
+        Sine_time = (Sine_time+1) % 24000; //common multipile
+    }
+    
     // float x_d2 = 0.0f;
     //x_d = Vector3f(x_d1, 0.0f ,0.0f);
-    x_d = {x_d1, 0.0f};
-    x_d_P = {x_d1_P, 0.0f};
+    if(_TD_DEPC==1 && _TD_REF==2){ //only for sinusoidal ref
+        x_d = {x_d1_h, 0.0f};
+        x_d_P = {x_d1_P_h, 0.0f};
+    }else{
+        x_d = {x_d1, 0.0f};
+        x_d_P = {x_d1_P, 0.0f};
+    }
+
 
     //LPF
     //x_p3_k[0] = filter.apply(x_p3_k[0], dt);
@@ -922,7 +946,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     else if (_TD_Q == 1){
         Xp = x_k + (x_p3_k - x_p_hat2);
         Xp_P = x_k_P + (x_p3_k_P - x_p_hat2_P);
-
+            
         e_chi = Xp - x_d;
         e_chi_P = Xp_P - x_d_P;
 

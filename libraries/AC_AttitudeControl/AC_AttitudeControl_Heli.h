@@ -124,6 +124,18 @@ public:
     AP_Float _TD_L_1_P; //gain for dob1
     AP_Float _TD_L_2_P; //gain for dob2
     AP_Float _TD_OMG_P; //omega0
+    AP_Int8 _TD_REF; //reference
+    AP_Int8 _TD_DEPC; //trajectory prediction?
+
+    int16_t Sine_time = 0;
+    float d2r = 0.017453292;
+    float r2d = 57.2957795;
+    float pi = 3.1415926;
+
+    float x_d1_h = 0.0;
+    float x_d1_h1 = 0.0;
+    float x_d1_P_h = 0.0;
+    float x_d1_P_h1 = 0.0;
 
     // for SITL
     //AP_Float _TD_X;
