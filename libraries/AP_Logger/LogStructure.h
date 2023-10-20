@@ -706,18 +706,21 @@ struct PACKED log_X {
     LOG_PACKET_HEADER;
     uint64_t time_us;
 
-    float x_2;
-    float x_2_P;
+    float x_1;
+    float x_d1;
 
+    float x_1_P;
+    float x_d1_P;
+
+    float x_1_Y;
+    float x_d1_Y;
+    
     float e_chi1;
     float e_chi1_P;
 
     float d_k_h;
     float d_k_h_P;
 
-    float u_k_delayed;
-    float u_k_delayed_P;
-    float _dt;
 };
 
 // FMT messages define all message formats other than FMT
@@ -1341,7 +1344,7 @@ LOG_STRUCTURE_FROM_VISUALODOM \
       "PSCE", "Qffffffff", "TimeUS,TPE,PE,DVE,TVE,VE,DAE,TAE,AE", "smmnnnooo", "F00000000" }, \
     { LOG_PSCD_MSG, sizeof(log_PSCD), \
       "PSCD", "Qffffffff", "TimeUS,TPD,PD,DVD,TVD,VD,DAD,TAD,AD", "smmnnnooo", "F00000000" }, \
-    { LOG_X_MSG, sizeof(log_X), "X", "Qfffffffff", "TimeUS,X2,X2P,ECHI1,ECHI1P,D_K_H,D_K_HP,U,U_P,DT", "s?????????", "F?????????" }, \
+    { LOG_X_MSG, sizeof(log_X), "X", "Qffffffffff", "TimeUS,X1,XD,X1P,XD_P,X1Y,XD_Y,ECHI1,ECHI1P,D_K_H,D_K_HP", "s??????????", "F??????????" }, \
     { LOG_STAK_MSG, sizeof(log_STAK), \
       "STAK", "QBBHHN", "TimeUS,Id,Pri,Total,Free,Name", "s#----", "F-----", true }, \
     { LOG_FILE_MSG, sizeof(log_File), \

@@ -137,6 +137,8 @@ public:
     float x_d1_P_h = 0.0;
     float x_d1_P_h1 = 0.0;
 
+    float x_1_Y = 0.0;
+    float x_d1_Y = 0.0;
     // for SITL
     //AP_Float _TD_X;
     //AP_Float _TD_X_DOT;

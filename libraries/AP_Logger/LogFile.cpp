@@ -561,24 +561,23 @@ void AP_Logger::Write_PSCD(float pos_target, float pos, float vel_desired, float
     WriteBlock(&pkt, sizeof(pkt));
 }
 
-void AP_Logger::Write_X(float x_2, float x_2_P, float e_chi1, float e_chi1_P, float d_k_h, float d_k_h_P, float u_k_delayed, float u_k_delayed_P, float _dt)
+void AP_Logger::Write_X(float x_1, float x_d1, float x_1_P, float x_d1_P, float x_1_Y, float x_d1_Y, float e_chi1, float e_chi1_P, float d_k_h, float d_k_h_P)
 {
     const struct log_X pkt{
         LOG_PACKET_HEADER_INIT(LOG_X_MSG), //message ID 
             time_us : AP_HAL::micros64(), // timestamp
-            x_2  : x_2, //value 2
-            x_2_P  : x_2_P, //value 2
-
+            x_1  : x_1, //value 2
+            x_d1 : x_d1,
+            x_1_P  : x_1_P, //value 2
+            x_d1_P : x_d1_P,
+            x_1_Y  : x_1_Y, //value 2
+            x_d1_Y : x_d1_Y,           
             e_chi1  : e_chi1, //value 3
             e_chi1_P  : e_chi1_P, //value 3
 
             d_k_h : d_k_h,
-            d_k_h_P : d_k_h_P,
+            d_k_h_P : d_k_h_P
 
-            u_k_delayed : u_k_delayed,
-            u_k_delayed_P : u_k_delayed_P,
-            _dt : _dt
-    
 
     };
     WriteBlock(&pkt, sizeof(pkt));

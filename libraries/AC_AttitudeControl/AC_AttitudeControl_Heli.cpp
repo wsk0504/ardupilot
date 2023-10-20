@@ -143,7 +143,9 @@ VectorN<float,2> Cp_r1_P (0.0f, 0.0f);
 Quaternion attitude_quat;
 
 float sample_frequency = dt;
-float cutoff_frequency = 5.0f;
+//float cutoff_frequency = 5.0f;
+float cutoff_frequency = 3.0f;
+
 //LowPassFilter<float> filter(sample_frequency, cutoff_frequency);
 LowPassFilter2p<float> filter2p(sample_frequency, cutoff_frequency);
 
@@ -887,7 +889,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     if (_TD_TEST == 1){
         //if(k == int((_TD_H/dt)/2) || k == 1){
             //AP::logger().Write_X(x_1,x_2,x_1_P,x_2_P,x_d1,x_d1_P,e_chi[0],e_chi[1],e_chi_P[0],e_chi_P[1],d_est,d_k_h,d_est_P,d_k_h_P);       
-            AP::logger().Write_X(x_1,x_1_P,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P,x_d1,x_d1_P,_dt);       
+            AP::logger().Write_X(x_1,x_d1,x_1_P,x_d1_P,x_1_Y,x_d1_Y,e_chi[0],e_chi_P[0],d_k_h,d_k_h_P);       
 
         //}
     }
@@ -902,26 +904,47 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     //h = H;// delay test
     
     // REFERENCE TRAJECTORY
+    x_d1_Y = _euler_angle_target.z; // yaw ref for log
     if(_TD_REF==0){ // normal
         x_d1 = roll_target_rads;
         x_d1_P = pitch_target_rads;
+        Sine_time = 0.0;
     }else if(_TD_REF==1){ //step
         x_d1 = 10*d2r; //10deg
-        x_d1_P = pitch_target_rads;
+        x_d1_P = 10*d2r;
     }else if(_TD_REF==2){ // sinusodial
         x_d1 = 10*sin(2*pi*Sine_time/MAX_DELAY/30)*d2r;
         x_d1_h = 10*sin(2*pi*(Sine_time+h)/MAX_DELAY/30)*d2r;
         //x_d1_h1 = 10*sin(2*pi*(Sine_time+h+1)/MAX_DELAY/30)*d2r;
 
+        x_d1_P = 5*sin(2*pi*Sine_time/MAX_DELAY/30)*d2r;
+        x_d1_P_h = 5*sin(2*pi*(Sine_time+h)/MAX_DELAY/30)*d2r;
+        //x_d1_P_h1 = 5*cos(2*pi*(Sine_time+h+1)/MAX_DELAY/20)*d2r;
+
+        Sine_time = (Sine_time+1) % 24000; //common multiply
+    }else if(_TD_REF==3){ //step
+        x_d1 = 10*d2r; //10deg
+        x_d1_P = pitch_target_rads;
+    }else if(_TD_REF==4){ // roll sinusodial
+        x_d1 = 10*sin(2*pi*Sine_time/MAX_DELAY/30)*d2r;
+        x_d1_h = 10*sin(2*pi*(Sine_time+h)/MAX_DELAY/30)*d2r;
+        //x_d1_h1 = 10*sin(2*pi*(Sine_time+h+1)/MAX_DELAY/30)*d2r;
+
+        x_d1_P = 10*d2r;
+        x_d1_P_h = 10*d2r;
+        //x_d1_P_h1 = 5*cos(2*pi*(Sine_time+h+1)/MAX_DELAY/20)*d2r;
+        Sine_time = (Sine_time+1) % 24000; //common multiply
+    }else if(_TD_REF==5){ // pitch sinusodial
+        x_d1 = 10*d2r;
+        x_d1_h = 10*d2r;
+        //x_d1_h1 = 10*sin(2*pi*(Sine_time+h+1)/MAX_DELAY/30)*d2r;
+
         x_d1_P = 5*cos(2*pi*Sine_time/MAX_DELAY/20)*d2r;
         x_d1_P_h = 5*cos(2*pi*(Sine_time+h)/MAX_DELAY/20)*d2r;
         //x_d1_P_h1 = 5*cos(2*pi*(Sine_time+h+1)/MAX_DELAY/20)*d2r;
-
-        Sine_time = (Sine_time+1) % 24000; //common multipile
+        Sine_time = (Sine_time+1) % 24000; //common multiply
     }
-    
-    // float x_d2 = 0.0f;
-    //x_d = Vector3f(x_d1, 0.0f ,0.0f);
+
     if(_TD_DEPC==1 && _TD_REF==2){ //only for sinusoidal ref
         x_d = {x_d1_h, 0.0f};
         x_d_P = {x_d1_P_h, 0.0f};
@@ -930,7 +953,8 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
         x_d_P = {x_d1_P, 0.0f};
     }
 
-
+    // float x_d2 = 0.0f;
+    //x_d = Vector3f(x_d1, 0.0f ,0.0f);
     //LPF
     //x_p3_k[0] = filter.apply(x_p3_k[0], dt);
     //x_p3_k[1] = filter.apply(x_p3_k[1], dt);
@@ -1179,7 +1203,7 @@ void AC_AttitudeControl_Heli::exp_pbc_time_delay_system_roll(const Vector3f &rat
     AP::ahrs().get_quat_body_to_ned(attitude_quat);
     x_1 = attitude_quat.get_euler_roll();
     x_1_P = attitude_quat.get_euler_pitch();
-
+    x_1_Y = attitude_quat.get_euler_yaw();
     //x_2 = rate_rads.x;
     //euler rate
     x_2 = rate_rads.x + tan(x_1_P)*(rate_rads.y*sin(x_1)+rate_rads.z*cos(x_1));
