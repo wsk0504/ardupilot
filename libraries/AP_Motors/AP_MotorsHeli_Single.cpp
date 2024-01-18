@@ -19,6 +19,7 @@
 #include "AP_MotorsHeli_Single.h"
 #include <GCS_MAVLink/GCS.h>
 #include <RC_Channel/RC_Channel.h>
+#include <AP_Logger/AP_Logger.h>
 
 
 extern const AP_HAL::HAL& hal;
@@ -136,6 +137,18 @@ const AP_Param::GroupInfo AP_MotorsHeli_Single::var_info[] = {
     // @User: Advanced
     // @Increment: 1
     AP_SUBGROUPINFO(_swashplate, "SW_", 20, AP_MotorsHeli_Single, AP_MotorsHeli_Swash),
+
+    // 011324 JH For Slow start for Tail
+    AP_GROUPINFO("SLST_AMP_P", 21, AP_MotorsHeli_Single, _slowstart_amplitude, 5.0f),
+    AP_GROUPINFO("SLST_TIME", 22, AP_MotorsHeli_Single, _slowstart_time, 2.0f),
+
+    // 010724 JH Add new parameters for excitation
+    AP_GROUPINFO("EXC_FREQ", 23, AP_MotorsHeli_Single, _excitation_frequency, 0.0f),
+    AP_GROUPINFO("EXC_AMP", 24, AP_MotorsHeli_Single, _excitation_amplitude, 0.0f),
+    AP_GROUPINFO("EXC_ENABLE", 25, AP_MotorsHeli_Single, _excitation_enabled, 0),
+    AP_GROUPINFO("EXC_FAULT", 26, AP_MotorsHeli_Single, _fault_inj, 0),
+    AP_GROUPINFO("EXC_FAULT_P", 27, AP_MotorsHeli_Single, _fault_percent, 0.0f),
+
 
     AP_GROUPEND
 };
@@ -563,6 +576,8 @@ void AP_MotorsHeli_Single::output_to_motors()
     if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
         _servo4_out = -_servo4_out;
     }
+    // JH 20240115 Reverse PWM 
+        _servo4_out = -_servo4_out;
 
     switch (_spool_state) {
         case SpoolState::SHUT_DOWN:
@@ -573,7 +588,9 @@ void AP_MotorsHeli_Single::output_to_motors()
              rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
              rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
              rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
-            //
+             check_init = TRUE;
+           //
+            
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
@@ -581,12 +598,7 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::GROUND_IDLE:
             // sends idle output to motors when armed. rotor could be static or turning (autorotation)
             update_motor_control(ROTOR_CONTROL_IDLE);
-            //JH 05_22_23
-             rc_write_angle(AP_MOTORS_MOT_6, -YAW_SERVO_MAX_ANGLE);
-             rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
-             rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
-             rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
-            //
+
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
@@ -595,14 +607,195 @@ void AP_MotorsHeli_Single::output_to_motors()
         case SpoolState::THROTTLE_UNLIMITED:
             // set motor output based on thrust requests
             update_motor_control(ROTOR_CONTROL_ACTIVE);
-            //JH 05_22_23
+
+            //JH 01_13_24 Slow start IDLE for tail rotor 900pwm
+            if(check_init==TRUE){ // Idle
+               static float time_now_init = -1.0f; // Static variable to store the start time
+                if (time_now_init < 0) {
+                    time_now_init = AP_HAL::millis() * 0.001f; // Set start time on the first iteration
+                }
+                float time_now = AP_HAL::millis() * 0.001f - time_now_init; // converting milliseconds to seconds
+                time_div_startime= fmod(time_now, _slowstart_time*5)+0.01f;
+                if(time_div_startime >= 0.0f && time_div_startime <= _slowstart_time){
+                    rc_write_angle(AP_MOTORS_MOT_6, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+                }else if(time_div_startime > _slowstart_time && time_div_startime <= _slowstart_time*2){
+                    rc_write_angle(AP_MOTORS_MOT_6,(-1.0+(2*_slowstart_amplitude/100)*(time_div_startime-_slowstart_time)/_slowstart_time)*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+                }else if(time_div_startime > _slowstart_time*2 && time_div_startime <= _slowstart_time*3){
+                    rc_write_angle(AP_MOTORS_MOT_6, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, (-1.0+(2*_slowstart_amplitude/100)*(time_div_startime-_slowstart_time*2)/_slowstart_time)*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, -YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+                }else if(time_div_startime > _slowstart_time*3 && time_div_startime <= _slowstart_time*4){
+                    rc_write_angle(AP_MOTORS_MOT_6, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, (-1.0+(2*_slowstart_amplitude/100)*(time_div_startime-_slowstart_time*3)/_slowstart_time)*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, -YAW_SERVO_MAX_ANGLE);
+                }else if(time_div_startime > _slowstart_time*4 && time_div_startime < _slowstart_time*5 ){
+                    rc_write_angle(AP_MOTORS_MOT_6, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, (-1.0+(2*_slowstart_amplitude/100)*(time_div_startime-_slowstart_time*4)/_slowstart_time)*YAW_SERVO_MAX_ANGLE);
+                }else{
+                    check_init = FALSE;
+                }
+            } 
+            if(check_init == FALSE){ // Take off
+
+            //JH 01_08_24 Null space Excitation
+            if (_excitation_enabled) {
+                _servo4_out = constrain_float(_servo4_out, -0.8f, 1.0f);
+
+                // Calculate excitation value based on current time and frequency
+                float time_now = AP_HAL::millis() * 0.001f; // converting milliseconds to seconds
+                //float t = time_now % (_excitation_frequency*4);
+                float t = fmod(time_now, _excitation_frequency * 4);
+
+                if (t > 0 && t <= _excitation_frequency ){
+                    // Apply excitation to the servo output
+                    _servo4_out_1 = _servo4_out + _excitation_amplitude;
+                    _servo4_out_2 = _servo4_out - _excitation_amplitude;
+                    _servo4_out_3 = _servo4_out;
+                    _servo4_out_4 = _servo4_out;
+                }
+                else if(t > _excitation_frequency && t <= _excitation_frequency * 2){
+                    // Apply excitation to the servo output
+                    _servo4_out_1 = _servo4_out + _excitation_amplitude;
+                    _servo4_out_2 = _servo4_out;
+                    _servo4_out_3 = _servo4_out - _excitation_amplitude;
+                    _servo4_out_4 = _servo4_out;
+                }
+                else if(t > _excitation_frequency * 2 && t <= _excitation_frequency * 3){
+                    // Apply excitation to the servo output
+                    _servo4_out_1 = _servo4_out + _excitation_amplitude;
+                    _servo4_out_2 = _servo4_out;
+                    _servo4_out_3 = _servo4_out;
+                    _servo4_out_4 = _servo4_out - _excitation_amplitude;
+                }
+                else if(t > _excitation_frequency * 3 && t <= _excitation_frequency * 4){
+                    // Apply excitation to the servo output
+                    _servo4_out_1 = _servo4_out;
+                    _servo4_out_2 = _servo4_out + _excitation_amplitude;
+                    _servo4_out_3 = _servo4_out - _excitation_amplitude;
+                    _servo4_out_4 = _servo4_out;
+                }else{
+                    _servo4_out_1 = _servo4_out;
+                    _servo4_out_2 = _servo4_out;
+                    _servo4_out_3 = _servo4_out;
+                    _servo4_out_4 = _servo4_out;                   
+                }
+                // JH 01_08_24 Fault Injection Part
+                if(_fault_inj == 1){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                }else if(_fault_inj == 2){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                }else if(_fault_inj == 3){
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 4){
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 12 || _fault_inj == 21){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                }else if(_fault_inj == 13 || _fault_inj == 31){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 14 || _fault_inj == 41){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 23 || _fault_inj == 32){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 24 || _fault_inj == 42){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 34 || _fault_inj == 43){
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }
+                
+                if (collective_out > 0.02){
+                    rc_write_angle(AP_MOTORS_MOT_6,  _servo4_out_1 * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7,  _servo4_out_2 * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9,  _servo4_out_3 * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, _servo4_out_4 * YAW_SERVO_MAX_ANGLE);
+                }
+            }else{     
+            // JH 01_13_24 Fault Injection Part
+ /*                if(_fault_inj == 1){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                }else if(_fault_inj == 2){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                }else if(_fault_inj == 3){
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 4){
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }
+                else if(_fault_inj == 12 || _fault_inj == 21){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                }else if(_fault_inj == 13 || _fault_inj == 31){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 14 || _fault_inj == 41){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 23 || _fault_inj == 32){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                }else if(_fault_inj == 24 || _fault_inj == 42){
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 34 || _fault_inj == 43){
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                    _servo4_out_4 = -1.0f + (_servo4_out_4 / 2 * _fault_percent);
+                }else if(_fault_inj == 123){
+                    _servo4_out_1 = -1.0f + (_servo4_out_1 / 2 * _fault_percent);
+                    _servo4_out_2 = -1.0f + (_servo4_out_2 / 2 * _fault_percent);
+                    _servo4_out_3 = -1.0f + (_servo4_out_3 / 2 * _fault_percent);
+                } */
+               
+            //JH 01_15_24
             if (collective_out > 0.02){
-                _servo4_out = constrain_float(_servo4_out, -1.0f, 0.9f);
-                 rc_write_angle(AP_MOTORS_MOT_6,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
-                 rc_write_angle(AP_MOTORS_MOT_7,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
-                 rc_write_angle(AP_MOTORS_MOT_9,  -_servo4_out * YAW_SERVO_MAX_ANGLE);
-                 rc_write_angle(AP_MOTORS_MOT_10, -_servo4_out * YAW_SERVO_MAX_ANGLE);
-            }
+                float time_init = AP_HAL::millis() * 0.001f - time_init_init; // converting milliseconds to seconds
+                time_init = fmod(time_init,_slowstart_time*2);
+                init_servo4_out = (-1.0f+(2*_slowstart_amplitude/100));
+                if(time_init >=0.0f && time_init<_slowstart_time && check_ignition == TRUE){
+                    rc_write_angle(AP_MOTORS_MOT_6, init_servo4_out*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, init_servo4_out*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, init_servo4_out*YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, init_servo4_out*YAW_SERVO_MAX_ANGLE);
+                }else if (time_init>=_slowstart_time && time_init<2*_slowstart_time-0.01 && check_ignition == TRUE){
+                    //init_servo4_out_ = (-init_servo4_out-1.0f)*time_init/_slowstart_time+init_servo4_out;
+                    //init_servo4_out = constrain_float(init_servo4_out_,-1.0f,init_servo4_out);
+                    _servo4_out = constrain_float(_servo4_out, -0.8f, 1.0f);
+                    rc_write_angle(AP_MOTORS_MOT_6,((_servo4_out-init_servo4_out)*(time_init-_slowstart_time)/_slowstart_time+init_servo4_out) * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, ((_servo4_out-init_servo4_out)*(time_init-_slowstart_time)/_slowstart_time+init_servo4_out) * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, ((_servo4_out-init_servo4_out)*(time_init-_slowstart_time)/_slowstart_time+init_servo4_out) * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, ((_servo4_out-init_servo4_out)*(time_init-_slowstart_time)/_slowstart_time+init_servo4_out) * YAW_SERVO_MAX_ANGLE); 
+                }else{
+                   _servo4_out = constrain_float(_servo4_out, -0.8f, 1.0f);
+                    rc_write_angle(AP_MOTORS_MOT_6, _servo4_out * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_7, _servo4_out * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_9, _servo4_out * YAW_SERVO_MAX_ANGLE);
+                    rc_write_angle(AP_MOTORS_MOT_10, _servo4_out * YAW_SERVO_MAX_ANGLE); 
+                    check_ignition = FALSE;
+                }
+            }else{
+                time_init_init =  AP_HAL::millis() * 0.001f;
+                check_ignition = TRUE;
+                rc_write_angle(AP_MOTORS_MOT_6, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_7, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_9, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+                rc_write_angle(AP_MOTORS_MOT_10, (-1.0+(2*_slowstart_amplitude/100))*YAW_SERVO_MAX_ANGLE);
+           }
+        }
+    }
+
             //
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
                 // constrain output so that motor never fully stops
@@ -624,7 +817,7 @@ void AP_MotorsHeli_Single::output_to_motors()
                 rc_write_angle(AP_MOTORS_MOT_4, -YAW_SERVO_MAX_ANGLE);
             }
             break;
-
+            check_init = TRUE;
     }
 }
 

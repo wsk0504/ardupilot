@@ -127,7 +127,7 @@ protected:
     float _oscillate_angle = 0.0f;              // cyclic oscillation angle, used by servo_test function
     float _servo_test_cycle_time = 0.0f;        // cycle time tracker, used by servo_test function
     float _collective_test = 0.0f;              // over-ride for collective output, used by servo_test function
-     float collective_out = 0.0f;              // over-ride for collective output, used by servo_test function
+    float collective_out = 0.0f;              // over-ride for collective output, used by servo_test function
     float _roll_test = 0.0f;                    // over-ride for roll output, used by servo_test function
     float _pitch_test = 0.0f;                   // over-ride for pitch output, used by servo_test function
     float _yaw_test = 0.0f;                     // over-ride for yaw output, used by servo_test function
@@ -145,6 +145,27 @@ protected:
     AP_Float        _collective_yaw_effect;     // Feed-forward compensation to automatically add rudder input when collective pitch is increased. Can be positive or negative depending on mechanics.
     AP_Int8         _flybar_mode;               // Flybar present or not.  Affects attitude controller used during ACRO flight mode
     AP_Int16        _direct_drive_tailspeed;    // Direct Drive VarPitch Tail ESC speed (0 ~ 1000)
+    
+    // 011324 JH Slow Start 
+    AP_Float _slowstart_amplitude; // Max amplitude of IDLE 0.1->50pwm [%]
+    AP_Float _slowstart_time; // each motor time to Max [s]
+    bool check_init = TRUE;
+    float time_div_startime = 0.0f;
+    float init_servo4_out = 0.0f;
+    float init_servo4_out_ = 0.0f;
+    float _servo4_out_ = 0.0f;
+    bool check_ignition = TRUE;
+    float time_init_init = 0.0f;
 
+    // 010724 JH Excitation
+    float _servo4_out_1 =  0.0f;
+    float _servo4_out_2 =  0.0f;
+    float _servo4_out_3 =  0.0f;
+    float _servo4_out_4 =  0.0f;
+    AP_Float _excitation_frequency; // Frequency of excitation
+    AP_Float _excitation_amplitude; // Amplitude of excitation
+    AP_Int8 _excitation_enabled;    // Whether excitation is enabled
+    AP_Int8 _fault_inj; // Inject Fault
+    AP_Float _fault_percent; // Inject Fault percentage
     bool            _acro_tail = false;
 };
