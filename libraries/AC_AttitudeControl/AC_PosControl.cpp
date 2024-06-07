@@ -1142,6 +1142,7 @@ void AC_PosControl::write_log()
                                 get_vel_desired_cms().y, get_vel_target_cms().y, _inav.get_velocity_neu_cms().y,
                                 _accel_desired.y, get_accel_target_cmss().y, accel_y);
     }*/
+    test_for_git;
     if (is_active_z()) {
         float accel_x, accel_y;
         lean_angles_to_accel_xy(accel_x, accel_y);
